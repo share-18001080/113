@@ -437,27 +437,27 @@ jobs:
         
         # Create installation script
         cat > release/install.sh << 'EOFSCRIPT'
-#!/system/bin/sh
-# FFmpeg Android Installation Script
-
-# Set up library path
-export LD_LIBRARY_PATH="$(dirname "$0")/lib:$LD_LIBRARY_PATH"
-
-# Create symlinks if needed
-INSTALL_DIR="/data/local/tmp/ffmpeg"
-mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/lib"
-
-# Copy binaries
-cp "$(dirname "$0")/ffmpeg" "$INSTALL_DIR/bin/" 2>/dev/null
-cp "$(dirname "$0")/ffprobe" "$INSTALL_DIR/bin/" 2>/dev/null
-cp "$(dirname "$0")"/lib/*.so "$INSTALL_DIR/lib/" 2>/dev/null
-
-chmod 755 "$INSTALL_DIR/bin/ffmpeg" "$INSTALL_DIR/bin/ffprobe"
-
-echo "FFmpeg installed to $INSTALL_DIR"
-echo "Add to PATH: export PATH=\"$INSTALL_DIR/bin:\$PATH\""
-echo "Add to LD_LIBRARY_PATH: export LD_LIBRARY_PATH=\"$INSTALL_DIR/lib:\$LD_LIBRARY_PATH\""
-EOFSCRIPT
+		#!/system/bin/sh
+		# FFmpeg Android Installation Script
+		
+		# Set up library path
+		export LD_LIBRARY_PATH="$(dirname "$0")/lib:$LD_LIBRARY_PATH"
+		
+		# Create symlinks if needed
+		INSTALL_DIR="/data/local/tmp/ffmpeg"
+		mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/lib"
+		
+		# Copy binaries
+		cp "$(dirname "$0")/ffmpeg" "$INSTALL_DIR/bin/" 2>/dev/null
+		cp "$(dirname "$0")/ffprobe" "$INSTALL_DIR/bin/" 2>/dev/null
+		cp "$(dirname "$0")"/lib/*.so "$INSTALL_DIR/lib/" 2>/dev/null
+		
+		chmod 755 "$INSTALL_DIR/bin/ffmpeg" "$INSTALL_DIR/bin/ffprobe"
+		
+		echo "FFmpeg installed to $INSTALL_DIR"
+		echo "Add to PATH: export PATH=\"$INSTALL_DIR/bin:\$PATH\""
+		echo "Add to LD_LIBRARY_PATH: export LD_LIBRARY_PATH=\"$INSTALL_DIR/lib:\$LD_LIBRARY_PATH\""
+		EOFSCRIPT
         chmod +x release/install.sh
         
         cat > release/BUILD_INFO.txt << 'EOF'
