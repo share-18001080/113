@@ -51,15 +51,7 @@ jobs:
           libfontconfig1-dev libharfbuzz-dev \
           mandoc groff-base \
           python3-setuptools python3-wheel
-          
-        # Install c2man from source (since apt package may be unavailable)
-        echo "Installing c2man from source..."
-        git clone https://github.com/rosedu/c2man.git
-        cd c2man
-        make
-        sudo make install
-        cd ..
-        rm -rf c2man
+         
         
         # Install missing Python packages
         sudo pip3 install docwriter || echo "docwriter install failed, continuing..."
