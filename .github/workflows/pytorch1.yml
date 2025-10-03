@@ -1,0 +1,293 @@
+name: Build PyTorch Android armeabi-v7a Binary
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      pytorch_version:
+        description: 'PyTorch version branch/tag'
+        required: false
+        default: 'v1.13.0'
+      enable_custom_ops:
+        description: 'Enable custom operator list (yes/no)'
+        required: false
+        default: 'no'
+
+env:
+  ANDROID_NDK_VERSION: 'r21e'
+  ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r21e
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  GRADLE_VERSION: '7.6'
+  JAVA_VERSION: '11'
+  PYTORCH_VERSION: 'v1.13.0'
+  BUILD_ABI: 'armeabi-v7a'
+
+jobs:
+  build-pytorch-android:
+    name: Build PyTorch Android Binary
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    
+    steps:
+      # Bước 1: Checkout repository
+      - name: Checkout PyTorch Source
+        uses: actions/checkout@v4
+        with:
+          repository: 'pytorch/pytorch'
+          ref: ${{ github.event.inputs.pytorch_version || env.PYTORCH_VERSION }}
+          submodules: recursive
+          fetch-depth: 1
+      
+      # Bước 2: Setup Java JDK
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+      
+      # Bước 3: Cache Android NDK
+      - name: Cache Android NDK
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_NDK_HOME }}
+          key: ${{ runner.os }}-ndk-${{ env.ANDROID_NDK_VERSION }}-v2
+          restore-keys: |
+            ${{ runner.os }}-ndk-
+      
+      # Bước 4: Download và Install Android NDK
+      - name: Install Android NDK ${{ env.ANDROID_NDK_VERSION }}
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          cd ${{ github.workspace }}
+          wget -q https://dl.google.com/android/repository/android-ndk-${{ env.ANDROID_NDK_VERSION }}-linux.zip
+          unzip -q android-ndk-${{ env.ANDROID_NDK_VERSION }}-linux.zip
+          rm android-ndk-${{ env.ANDROID_NDK_VERSION }}-linux.zip
+      
+      # Bước 5: Verify NDK installation
+      - name: Verify NDK Installation
+        run: |
+          if [ ! -d "${{ env.ANDROID_NDK_HOME }}" ]; then
+            echo "ERROR: NDK not found at ${{ env.ANDROID_NDK_HOME }}"
+            exit 1
+          fi
+          echo "NDK Version:"
+          cat ${{ env.ANDROID_NDK_HOME }}/source.properties
+          echo "NDK Toolchains:"
+          ls -la ${{ env.ANDROID_NDK_HOME }}/toolchains/
+      
+      # Bước 6: Setup Gradle
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+      
+      # Bước 7: Cache build dependencies
+      - name: Cache CMake Build Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ccache
+            build_android
+          key: ${{ runner.os }}-pytorch-android-${{ env.BUILD_ABI }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pytorch-android-${{ env.BUILD_ABI }}-
+            ${{ runner.os }}-pytorch-android-
+      
+      # Bước 8: Install build dependencies
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ccache \
+            cmake \
+            ninja-build \
+            python3-dev \
+            python3-pip \
+            python3-yaml \
+            libopenblas-dev
+          
+          pip3 install --upgrade pip setuptools wheel
+          pip3 install numpy pyyaml typing_extensions
+      
+      # Bước 9: Setup ccache for faster builds
+      - name: Setup ccache
+        run: |
+          ccache --set-config=cache_dir=$HOME/.ccache
+          ccache --set-config=max_size=5G
+          ccache --set-config=compression=true
+          ccache -z
+      
+      # Bước 10: Prepare custom operator list (optional)
+      - name: Prepare Custom Operator List
+        if: github.event.inputs.enable_custom_ops == 'yes'
+        run: |
+          cat > mobile_ops.yaml << 'EOF'
+          - aten::_convolution
+          - aten::batch_norm
+          - aten::max_pool2d
+          - aten::relu
+          - aten::adaptive_avg_pool2d
+          - aten::flatten
+          - aten::linear
+          - aten::dropout
+          - aten::add
+          - aten::mul
+          - aten::div
+          EOF
+          echo "SELECTED_OP_LIST=${{ github.workspace }}/mobile_ops.yaml" >> $GITHUB_ENV
+      
+      # Bước 11: Build PyTorch Android for armeabi-v7a
+      - name: Build PyTorch Android Binary (armeabi-v7a)
+        id: build
+        run: |
+          export ANDROID_NDK=${{ env.ANDROID_NDK_HOME }}
+          export ANDROID_HOME=${{ env.ANDROID_HOME }}
+          export GRADLE_HOME=${{ github.workspace }}/gradle-${{ env.GRADLE_VERSION }}
+          export JAVA_HOME=$JAVA_HOME_11_X64
+          
+          # Enable ccache
+          export USE_CCACHE=1
+          export CCACHE_DIR=$HOME/.ccache
+          
+          # Build configuration
+          export USE_CUDA=0
+          export USE_DISTRIBUTED=0
+          export BUILD_TEST=0
+          export USE_FBGEMM=0
+          export USE_KINETO=0
+          export USE_QNNPACK=1
+          export USE_PYTORCH_QNNPACK=1
+          export USE_XNNPACK=1
+          
+          # Build only armeabi-v7a
+          cd ${{ github.workspace }}
+          
+          # Kiểm tra tương thích NDK với armeabi-v7a
+          if [ ! -f "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang" ]; then
+            echo "ERROR: armeabi-v7a toolchain not found in NDK"
+            exit 1
+          fi
+          
+          # Run build script
+          bash ./scripts/build_pytorch_android.sh ${{ env.BUILD_ABI }}
+          
+        env:
+          SELECTED_OP_LIST: ${{ env.SELECTED_OP_LIST }}
+      
+      # Bước 12: Show ccache statistics
+      - name: Display ccache Statistics
+        run: ccache -s
+      
+      # Bước 13: Verify build output
+      - name: Verify Build Output
+        run: |
+          echo "Checking build artifacts..."
+          
+          AAR_FILE=$(find android -type f -name "pytorch_android-release.aar" 2>/dev/null || true)
+          
+          if [ -z "$AAR_FILE" ]; then
+            echo "ERROR: pytorch_android-release.aar not found!"
+            echo "Searching for any .aar files:"
+            find . -name "*.aar" -type f
+            exit 1
+          fi
+          
+          echo "✓ Found AAR: $AAR_FILE"
+          ls -lh "$AAR_FILE"
+          
+          # Kiểm tra nội dung AAR
+          unzip -l "$AAR_FILE" | grep "lib/${{ env.BUILD_ABI }}"
+          
+          # Kiểm tra shared libraries
+          SO_FILES=$(unzip -l "$AAR_FILE" | grep "lib/${{ env.BUILD_ABI }}/.*\.so" | wc -l)
+          echo "Found $SO_FILES shared libraries for ${{ env.BUILD_ABI }}"
+          
+          if [ "$SO_FILES" -eq 0 ]; then
+            echo "ERROR: No shared libraries found for ${{ env.BUILD_ABI }}"
+            exit 1
+          fi
+          
+          echo "✓ Build verification passed"
+      
+      # Bước 14: Extract build info
+      - name: Extract Build Information
+        id: build-info
+        run: |
+          AAR_FILE=$(find android -type f -name "pytorch_android-release.aar")
+          FILE_SIZE=$(ls -lh "$AAR_FILE" | awk '{print $5}')
+          FILE_SIZE_BYTES=$(stat -c%s "$AAR_FILE")
+          
+          echo "aar_path=$AAR_FILE" >> $GITHUB_OUTPUT
+          echo "aar_size=$FILE_SIZE" >> $GITHUB_OUTPUT
+          echo "aar_size_bytes=$FILE_SIZE_BYTES" >> $GITHUB_OUTPUT
+          
+          # Extract version info
+          PYTORCH_VERSION=$(cat version.txt || echo "unknown")
+          echo "pytorch_version=$PYTORCH_VERSION" >> $GITHUB_OUTPUT
+      
+      # Bước 15: Create build summary
+      - name: Create Build Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🎉 PyTorch Android Build Successful
+          
+          ### Build Configuration
+          - **Architecture**: ${{ env.BUILD_ABI }}
+          - **PyTorch Version**: ${{ steps.build-info.outputs.pytorch_version }}
+          - **NDK Version**: ${{ env.ANDROID_NDK_VERSION }}
+          - **Build Time**: $(date -u)
+          
+          ### Build Artifacts
+          - **AAR File**: \`$(basename ${{ steps.build-info.outputs.aar_path }})\`
+          - **Size**: ${{ steps.build-info.outputs.aar_size }} (${{ steps.build-info.outputs.aar_size_bytes }} bytes)
+          
+          ### Included Libraries
+          \`\`\`
+          $(unzip -l ${{ steps.build-info.outputs.aar_path }} | grep "lib/${{ env.BUILD_ABI }}")
+          \`\`\`
+          EOF
+      
+      # Bước 16: Upload build artifacts
+      - name: Upload PyTorch Android AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytorch-android-${{ env.BUILD_ABI }}-${{ steps.build-info.outputs.pytorch_version }}
+          path: |
+            android/pytorch_android/build/outputs/aar/pytorch_android-release.aar
+            android/pytorch_android_torchvision/build/outputs/aar/pytorch_android_torchvision-release.aar
+          retention-days: 30
+          if-no-files-found: error
+      
+      # Bước 17: Upload build logs on failure
+      - name: Upload Build Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-failure
+          path: |
+            build_android/**/*.log
+            android/**/*.log
+          retention-days: 7
+          if-no-files-found: ignore
+      
+      # Bước 18: Create release (optional, on tags)
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.build-info.outputs.aar_path }}
+          body: |
+            PyTorch Android Binary for ${{ env.BUILD_ABI }}
+            
+            - PyTorch Version: ${{ steps.build-info.outputs.pytorch_version }}
+            - Architecture: ${{ env.BUILD_ABI }}
+            - NDK Version: ${{ env.ANDROID_NDK_VERSION }}
+            - Build Date: $(date -u)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
