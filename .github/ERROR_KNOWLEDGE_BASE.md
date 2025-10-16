@@ -8,6 +8,7 @@
 ## 📋 Quick Reference
 
 | ID | Tên lỗi | Thư viện | Workflow | Ngày |
+| ERROR-NDK-BUILD | Potential Alignment Issues in CELT Decoder | libopus | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run37_20251016-141228.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run37_20251016-141228.txt) | 2025-10-16 |
 | ERROR-001 | Configuration Warnings | opus | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run36_20251016-140943.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run36_20251016-140943.txt) | 2025-10-16 |
 | ERROR-OBSOLETE-MACRO | Obsolete Macros Used | libopus | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt) | 2025-10-16 |
 | ERROR-999 | API error | unknown | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt) | 2025-10-16 |
@@ -234,6 +235,24 @@ Provide a more complete log including the error message and exit code to diagnos
 **🛠️ Fix:** Update configure.ac to use current macros by running autoupdate.
 
 **📝** `CONFIGURE`
+
+---
+
+
+### 🔴 ERROR-NDK-BUILD: Potential Alignment Issues in CELT Decoder
+
+**📅** 2025-10-16 | **🔗** [Run #37](https://github.com/share-18001080/113/actions/runs/18563974813)  
+**🎯** `libopus` | **🏷️** `ver8` | **🤖** 75%
+
+**📄 FULL Log (2.7MB):** [`.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run37_20251016-141228.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run37_20251016-141228.txt)
+
+**⚠️ Triệu chứng:** Compiler warnings about increased alignment requirements due to type casting in celt_decoder.c
+
+**🔍 Nguyên nhân (Gemini analyzed FULL log):** Type casting in the CELT decoder code may lead to alignment issues on ARM architecture, potentially causing performance degradation or crashes.
+
+**🛠️ Fix:** Review the type casting in celt_decoder.c and ensure proper alignment is maintained. Consider using appropriately aligned data structures or memory allocation techniques to avoid alignment issues.
+
+**📝** `COMPILE`
 
 ---
 
