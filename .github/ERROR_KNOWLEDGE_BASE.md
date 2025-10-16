@@ -8,6 +8,7 @@
 ## 📋 Quick Reference
 
 | ID | Tên lỗi | Thư viện | Workflow | Ngày |
+| ERROR-999 | API error | unknown | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt) | 2025-10-16 |
 | ERROR-001 | Không có lỗi rõ ràng trong excerpt log | libass | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run32_20251016-134007.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run32_20251016-134007.txt) | 2025-10-16 |
 | ERROR-001 | No error detected in the provided log excerpt. | libass | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run31_20251016-130434.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run31_20251016-130434.txt) | 2025-10-16 |
 | ERROR-001 | Không có lỗi build nào được ghi nhận trong log | unknown | Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8) | 2025-10-16 |
@@ -177,6 +178,24 @@ Provide a more complete log including the error message and exit code to diagnos
 **🛠️ Fix:** Cần xem log đầy đủ để xác định lỗi.
 
 **📝** `UNKNOWN`
+
+---
+
+
+### 🔴 ERROR-999: API error
+
+**📅** 2025-10-16 | **🔗** [Run #34](https://github.com/share-18001080/113/actions/runs/18563510919)  
+**🎯** `unknown` | **🏷️** `ver8` | **🤖** 20%
+
+**📄 FULL Log (2.7MB):** [`.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt)
+
+**⚠️ Triệu chứng:** API error
+
+**🔍 Nguyên nhân (Gemini analyzed FULL log):** Gemini unavailable
+
+**🛠️ Fix:** Check full log
+
+**📝** `API_ERROR`
 
 ---
 
