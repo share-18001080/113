@@ -1,0 +1,50 @@
+name: Thu Thập Log Tự Động
+
+# Kích hoạt mỗi khi BẤT KỲ workflow nào chạy xong (thành công hay lỗi)
+on:
+  workflow_run:
+    workflows: ["*"]  # Dấu * = mọi workflow
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  gom-log:
+    runs-on: ubuntu-latest
+    steps:
+      # Bước 1: Tạo thư mục chứa log
+      - name: Tạo thư mục
+        run: mkdir -p tat-ca-log
+
+      # Bước 2: Tải toàn bộ log về (dạng file ZIP)
+      - name: Tải log từ GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID=${{ github.event.workflow_run.id }}
+          OWNER=${{ github.repository_owner }}
+          REPO=${{ github.event.repository.name }}
+          
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${RUN_ID}/logs \
+            -o tat-ca-log/log-day-du.zip
+          
+          unzip tat-ca-log/log-day-du.zip -d tat-ca-log/
+
+      # Bước 3: Tìm các dòng lỗi trong log
+      - name: Tìm lỗi
+        run: |
+          grep -r "error" tat-ca-log/ > tat-ca-log/danh-sach-loi.txt || echo "Không tìm thấy lỗi"
+          grep -r "failed" tat-ca-log/ >> tat-ca-log/danh-sach-loi.txt || true
+          grep -r "undefined reference" tat-ca-log/ >> tat-ca-log/danh-sach-loi.txt || true
+
+      # Bước 4: Lưu lại để tải về sau
+      - name: Lưu log
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-build-${{ github.event.workflow_run.id }}
+          path: tat-ca-log/
+          retention-days: 30
