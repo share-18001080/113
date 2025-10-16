@@ -8,6 +8,7 @@
 ## 📋 Quick Reference
 
 | ID | Tên lỗi | Thư viện | Workflow | Ngày |
+| ERROR-001 | No error detected in the provided log excerpt. | libass | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run31_20251016-130434.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run31_20251016-130434.txt) | 2025-10-16 |
 | ERROR-001 | Không có lỗi build nào được ghi nhận trong log | unknown | Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8) | 2025-10-16 |
 | ERROR-001 | Build process stalled or extremely slow | libass | Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8) | 2025-10-16 |
 | ERROR-999 | Gemini API failed - Using fallback | unknown | Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8) | 2025-10-16 |
@@ -139,6 +140,24 @@ The provided log snippet does not contain any error messages or exit codes. It o
 Provide a more complete log including the error message and exit code to diagnose the issue.
 
 **📝 Loại:** `UNKNOWN`
+
+---
+
+
+### 🔴 ERROR-001: No error detected in the provided log excerpt.
+
+**📅** 2025-10-16 | **🔗** [Run #31](https://github.com/share-18001080/113/actions/runs/18561793467)  
+**🎯** `libass` | **🏷️** `ver8` | **🤖** 95%
+
+**📄 Full Log:** [`.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run31_20251016-130434.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run31_20251016-130434.txt)
+
+**⚠️ Triệu chứng:** 
+
+**🔍 Nguyên nhân:** The provided log excerpt only shows progress of file transfer.
+
+**🛠️ Fix:** Provide a log excerpt containing error messages for analysis.
+
+**📝** `UNKNOWN`
 
 ---
 
