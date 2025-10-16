@@ -1,0 +1,310 @@
+name: Smart Knowledge Base v2 (Error Handling)
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  ai-analyze-error:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Tải log workflow bị lỗi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID=${{ github.event.workflow_run.id }}
+          
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runs/${RUN_ID}/logs \
+            -o current-log.zip
+          
+          unzip -q current-log.zip -d current-log/
+          find current-log/ -name "*.txt" -exec cat {} \; > full-log.txt
+          
+          # Giảm log xuống 20KB để tránh vượt token limit
+          tail -n 5000 full-log.txt > log-for-ai.txt
+
+      - name: Chuẩn bị context cho AI (ngắn gọn hơn)
+        run: |
+          cat > context.txt << 'EOFCONTEXT'
+          Bạn là chuyên gia phân tích lỗi FFmpeg Android build.
+
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          RUN: #${{ github.event.workflow_run.run_number }}
+          
+          NHIỆM VỤ:
+          Phân tích log lỗi và trả về JSON format:
+          {
+            "error_id": "ERROR-XXX",
+            "error_name": "Mô tả ngắn gọn",
+            "root_cause": "Nguyên nhân gốc",
+            "affected_library": "libass",
+            "error_type": "DEPENDENCY",
+            "symptoms": ["lỗi 1", "lỗi 2"],
+            "fix_suggestion": "Cách fix",
+            "confidence": 90
+          }
+          
+          QUAN TRỌNG: Chỉ trả về JSON, không thêm markdown hay text khác.
+          EOFCONTEXT
+
+      - name: Test Gemini API Key
+        id: test_api
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "❌ ERROR: GEMINI_API_KEY chưa được set!"
+            echo "api_key_valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Test API với request đơn giản
+          TEST_RESPONSE=$(curl -s -X POST \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=$GEMINI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"contents":[{"parts":[{"text":"Hello"}]}]}')
+          
+          if echo "$TEST_RESPONSE" | grep -q "error"; then
+            echo "❌ API Key không hợp lệ hoặc có lỗi:"
+            echo "$TEST_RESPONSE"
+            echo "api_key_valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ API Key hợp lệ"
+          echo "api_key_valid=true" >> $GITHUB_OUTPUT
+
+      - name: Gọi Gemini API (với error handling)
+        id: ai_analysis
+        if: steps.test_api.outputs.api_key_valid == 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          # Giảm size log để tránh vượt token limit (20KB max)
+          LOG_CONTENT=$(head -c 20000 log-for-ai.txt | base64 -w 0)
+          CONTEXT=$(cat context.txt | base64 -w 0)
+          
+          echo "📤 Gửi request tới Gemini API..."
+          
+          RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=$GEMINI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"contents\": [{
+                \"parts\": [{
+                  \"text\": \"$(echo "$CONTEXT" | base64 -d)\n\nLog (base64): $LOG_CONTENT\"
+                }]
+              }],
+              \"generationConfig\": {
+                \"temperature\": 0.1,
+                \"maxOutputTokens\": 1024
+              }
+            }")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE" | cut -d: -f2)
+          RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Code: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ API trả về lỗi (HTTP $HTTP_CODE):"
+            echo "$RESPONSE_BODY" | jq .
+            
+            # Fallback: Phân tích thô bằng grep
+            echo "⚠️ Fallback: Sử dụng phân tích thô"
+            
+            FIRST_ERROR=$(grep -m 1 "error:" log-for-ai.txt || echo "Unknown error")
+            
+            cat > ai-analysis.json << EOFJSON
+          {
+            "error_id": "ERROR-999",
+            "error_name": "Gemini API failed - Using fallback",
+            "root_cause": "$FIRST_ERROR",
+            "affected_library": "unknown",
+            "error_type": "UNKNOWN",
+            "symptoms": ["$FIRST_ERROR"],
+            "fix_suggestion": "Cần phân tích thủ công - Gemini API không khả dụng",
+            "confidence": 30
+          }
+          EOFJSON
+          else
+            # Parse response
+            AI_RESULT=$(echo "$RESPONSE_BODY" | jq -r '.candidates[0].content.parts[0].text' 2>/dev/null || echo "null")
+            
+            if [ "$AI_RESULT" = "null" ] || [ -z "$AI_RESULT" ]; then
+              echo "❌ Gemini không trả về text hợp lệ"
+              echo "Response: $RESPONSE_BODY" | jq .
+              
+              # Fallback
+              FIRST_ERROR=$(grep -m 1 "error:" log-for-ai.txt || echo "Parse error")
+              
+              cat > ai-analysis.json << EOFJSON
+          {
+            "error_id": "ERROR-998",
+            "error_name": "Response parsing failed",
+            "root_cause": "$FIRST_ERROR",
+            "affected_library": "unknown",
+            "error_type": "UNKNOWN",
+            "symptoms": ["Response null or empty"],
+            "fix_suggestion": "Check API response format",
+            "confidence": 20
+          }
+          EOFJSON
+            else
+              echo "✅ Nhận được response từ Gemini"
+              echo "$AI_RESULT"
+              
+              # Trích xuất JSON từ response
+              AI_JSON=$(echo "$AI_RESULT" | grep -Eo '\{[^}]+\}' | head -n 1)
+              
+              if [ -z "$AI_JSON" ]; then
+                echo "⚠️ Không tìm thấy JSON trong response, lưu raw text"
+                echo "$AI_RESULT" > ai-analysis.json
+              else
+                echo "$AI_JSON" > ai-analysis.json
+              fi
+            fi
+          fi
+          
+          # Validate JSON
+          if ! jq empty ai-analysis.json 2>/dev/null; then
+            echo "❌ JSON không hợp lệ, tạo fallback"
+            
+            cat > ai-analysis.json << EOFJSON
+          {
+            "error_id": "ERROR-997",
+            "error_name": "JSON validation failed",
+            "root_cause": "AI response không parse được",
+            "affected_library": "unknown",
+            "error_type": "UNKNOWN",
+            "symptoms": ["Invalid JSON from Gemini"],
+            "fix_suggestion": "Manual analysis required",
+            "confidence": 10
+          }
+          EOFJSON
+          fi
+          
+          cat ai-analysis.json
+          
+          # Extract fields
+          echo "error_id=$(jq -r '.error_id // "ERROR-000"' ai-analysis.json)" >> $GITHUB_OUTPUT
+          echo "error_name=$(jq -r '.error_name // "Unknown Error"' ai-analysis.json)" >> $GITHUB_OUTPUT
+          echo "affected_lib=$(jq -r '.affected_library // "unknown"' ai-analysis.json)" >> $GITHUB_OUTPUT
+
+      - name: Khởi tạo Knowledge Base nếu chưa có
+        run: |
+          if [ ! -f .github/ERROR_KNOWLEDGE_BASE.md ]; then
+            echo "# 📚 FFmpeg Android ARM32 - Error Knowledge Base" > .github/ERROR_KNOWLEDGE_BASE.md
+            echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "> **Cập nhật:** Tự động bởi AI (Gemini 2.0 Flash)" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "> **Tổng số lỗi:** 0" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "---" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "## 📋 Quick Reference" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "| ID | Tên lỗi | Thư viện | Workflow | Ngày |" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "|----|---------|----------|----------|------|" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "---" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+            echo "## 🔴 Chi tiết lỗi" >> .github/ERROR_KNOWLEDGE_BASE.md
+            
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .github/ERROR_KNOWLEDGE_BASE.md
+            git commit -m "docs: Khởi tạo Error Knowledge Base"
+          fi
+
+      - name: Thêm entry vào Knowledge Base
+        env:
+          ERROR_ID: ${{ steps.ai_analysis.outputs.error_id }}
+          ERROR_NAME: ${{ steps.ai_analysis.outputs.error_name }}
+          AFFECTED_LIB: ${{ steps.ai_analysis.outputs.affected_lib }}
+        run: |
+          AI_JSON=$(cat ai-analysis.json)
+          
+          ROOT_CAUSE=$(echo "$AI_JSON" | jq -r '.root_cause // "N/A"')
+          ERROR_TYPE=$(echo "$AI_JSON" | jq -r '.error_type // "UNKNOWN"')
+          FIX_SUGGESTION=$(echo "$AI_JSON" | jq -r '.fix_suggestion // "N/A"')
+          SYMPTOMS=$(echo "$AI_JSON" | jq -r '.symptoms // ["N/A"] | join("\n")')
+          CONFIDENCE=$(echo "$AI_JSON" | jq -r '.confidence // 0')
+          
+          sed -i "/^| ID | Tên lỗi/a | $ERROR_ID | $ERROR_NAME | $AFFECTED_LIB | ${{ github.event.workflow_run.name }} | $(date +%Y-%m-%d) |" .github/ERROR_KNOWLEDGE_BASE.md
+          
+          TOTAL_ERRORS=$(grep -c "^### 🔴 ERROR-" .github/ERROR_KNOWLEDGE_BASE.md || echo "0")
+          NEW_TOTAL=$((TOTAL_ERRORS + 1))
+          sed -i "s/\*\*Tổng số lỗi:\*\* [0-9]*/\*\*Tổng số lỗi:\*\* $NEW_TOTAL/" .github/ERROR_KNOWLEDGE_BASE.md
+          
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "### 🔴 $ERROR_ID: $ERROR_NAME" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "**📅 Ngày:** $(date +%Y-%m-%d)" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "**📦 Workflow:** ${{ github.event.workflow_run.name }} [Run #${{ github.event.workflow_run.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }})" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "**🎯 Thư viện:** \`$AFFECTED_LIB\`" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "**🤖 Độ tin cậy:** ${CONFIDENCE}%" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "**⚠️ Triệu chứng:**" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "\`\`\`" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "$SYMPTOMS" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "\`\`\`" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "**🔍 Nguyên nhân:**" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "$ROOT_CAUSE" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "**🛠️ Fix:**" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "$FIX_SUGGESTION" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "**📝 Loại:** \`$ERROR_TYPE\`" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "" >> .github/ERROR_KNOWLEDGE_BASE.md
+          echo "---" >> .github/ERROR_KNOWLEDGE_BASE.md
+
+      - name: Commit và push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add .github/ERROR_KNOWLEDGE_BASE.md
+          
+          if git diff --staged --quiet; then
+            echo "Không có thay đổi"
+          else
+            git commit -m "🤖 ${{ steps.ai_analysis.outputs.error_id }}: ${{ steps.ai_analysis.outputs.error_name }}"
+            git push
+          fi
+
+      - name: Debug info
+        if: always()
+        run: |
+          echo "## 🔍 Debug Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**API Key Set:** ${{ steps.test_api.outputs.api_key_valid }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Error ID:** ${{ steps.ai_analysis.outputs.error_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Error Name:** ${{ steps.ai_analysis.outputs.error_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### AI Analysis JSON:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+          cat ai-analysis.json >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Dọn dẹp
+        if: always()
+        run: rm -rf current-log/ current-log.zip full-log.txt log-for-ai.txt context.txt ai-analysis.json
