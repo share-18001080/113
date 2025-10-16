@@ -66,9 +66,9 @@ jobs:
           BRANCH="${{ github.event.workflow_run.head_branch }}"
           
           echo "" >> error-db/all-errors.txt
-          echo "════════════════════════════════════════════════════════════" >> error-db/all-errors.txt
+          echo "═══════════════════════════════════════════════════════════" >> error-db/all-errors.txt
           echo "❌ LỖI BUILD #${RUN_NUMBER}" >> error-db/all-errors.txt
-          echo "════════════════════════════════════════════════════════════" >> error-db/all-errors.txt
+          echo "═══════════════════════════════════════════════════════════" >> error-db/all-errors.txt
           echo "Workflow: ${WORKFLOW_NAME}" >> error-db/all-errors.txt
           echo "Run ID: ${RUN_ID}" >> error-db/all-errors.txt
           echo "Branch: ${BRANCH}" >> error-db/all-errors.txt
@@ -135,14 +135,14 @@ jobs:
           grep -oh "error:.*" error-db/all-errors.txt | sort | uniq -c | sort -rn | head -n 10 >> error-db/gemini-context.txt || echo "Chưa đủ dữ liệu" >> error-db/gemini-context.txt
           
           echo "" >> error-db/gemini-context.txt
-          echo "## LỖI CỦA PHIÊN BẢN GÂN NHẤT (Chi tiết)" >> error-db/gemini-context.txt
+          echo "## LỖI CỦA PHIÊN BẢN GẦN NHẤT (Chi tiết)" >> error-db/gemini-context.txt
           tail -n 200 error-db/all-errors.txt >> error-db/gemini-context.txt
           
           echo "" >> error-db/gemini-context.txt
           echo "## HƯỚNG DẪN SỬ DỤNG" >> error-db/gemini-context.txt
           echo "1. Copy toàn bộ nội dung file này" >> error-db/gemini-context.txt
           echo "2. Paste vào Gemini 2.5 Pro" >> error-db/gemini-context.txt
-          echo "3. Yêu cầu: 'Phân tích pattern lỗi và đưa ra fix cụ thể cho workflow YAML'" >> error-db/gemini-context.txt
+          echo "3. Yêu cầu: Phân tích pattern lỗi và đưa ra fix cụ thể cho workflow YAML" >> error-db/gemini-context.txt
 
       - name: Hiển thị tóm tắt trên GitHub UI
         run: |
@@ -158,9 +158,9 @@ jobs:
           
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔥 Top 5 lỗi phổ biến:" >> $GITHUB_STEP_SUMMARY
-          echo '```
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           grep -oh "error:.*" error-db/all-errors.txt | sort | uniq -c | sort -rn | head -n 5 >> $GITHUB_STEP_SUMMARY || echo "Chưa đủ dữ liệu" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📥 Tải nhật ký đầy đủ" >> $GITHUB_STEP_SUMMARY
@@ -175,7 +175,7 @@ jobs:
       - name: Dọn dẹp
         run: rm -rf current-log/ current-log.zip
 
-      - name: Upload nhật ký lỗi (GHI ĐÈ)
+      - name: Upload nhật ký lỗi
         uses: actions/upload-artifact@v4
         with:
           name: error-log-database
