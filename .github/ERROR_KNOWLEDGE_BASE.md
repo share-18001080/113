@@ -8,6 +8,7 @@
 ## 📋 Quick Reference
 
 | ID | Tên lỗi | Thư viện | Workflow | Ngày |
+| ERROR-OBSOLETE-MACRO | Obsolete Macros Used | libopus | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt) | 2025-10-16 |
 | ERROR-999 | API error | unknown | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt) | 2025-10-16 |
 | ERROR-001 | Không có lỗi rõ ràng trong excerpt log | libass | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run32_20251016-134007.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run32_20251016-134007.txt) | 2025-10-16 |
 | ERROR-001 | No error detected in the provided log excerpt. | libass | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run31_20251016-130434.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run31_20251016-130434.txt) | 2025-10-16 |
@@ -196,6 +197,24 @@ Provide a more complete log including the error message and exit code to diagnos
 **🛠️ Fix:** Check full log
 
 **📝** `API_ERROR`
+
+---
+
+
+### 🔴 ERROR-OBSOLETE-MACRO: Obsolete Macros Used
+
+**📅** 2025-10-16 | **🔗** [Run #35](https://github.com/share-18001080/113/actions/runs/18563903969)  
+**🎯** `libopus` | **🏷️** `ver8` | **🤖** 90%
+
+**📄 FULL Log (2.7MB):** [`.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt)
+
+**⚠️ Triệu chứng:** configure.ac warnings during the build process
+
+**🔍 Nguyên nhân (Gemini analyzed FULL log):** The configure.ac file uses obsolete Autoconf macros like AC_MINGW32, AM_PROG_LIBTOOL, AC_PROG_CC_C99, AC_WARN, AC_TRY_COMPILE, and AC_HELP_STRING.
+
+**🛠️ Fix:** Update the configure.ac file to use the modern equivalents of the obsolete macros. Run autoupdate to update the macros.
+
+**📝** `CONFIGURE`
 
 ---
 
