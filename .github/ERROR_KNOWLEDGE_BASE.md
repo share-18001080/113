@@ -1,7 +1,7 @@
 # 📚 FFmpeg Android ARM32 - Error Knowledge Base
 
 > **Cập nhật:** Tự động bởi AI (Gemini 2.0 Flash)
-> **Tổng số lỗi:** 5
+> **Tổng số lỗi:** 6
 
 ---
 
@@ -119,6 +119,26 @@ The configure script for LAME was unable to determine the sizes of fundamental d
 Define the sizes of the data types (SIZEOF_SHORT, SIZEOF_INT, etc.) and the endianness (WORDS_BIGENDIAN) in the config.h file or pass them as compiler flags (e.g., -DSIZEOF_SHORT=2). The log shows the sizes that were detected, so you can use those values. For endianness, you'll need to know if ARM is big-endian or little-endian (it's little-endian).
 
 **📝 Loại lỗi:** `CONFIGURE`
+
+---
+
+
+### 🔴 ERROR-001: Build process terminated prematurely
+
+**📅** 2025-10-16 | **📦** Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8) | **🔗** [Run #25](https://github.com/share-18001080/113/actions/runs/18559864608)
+
+**🎯 Thư viện:** `libass` | **🏷️** `ver8` | **🤖** 50%
+
+**⚠️ Triệu chứng:**
+- 
+
+**🔍 Nguyên nhân:**  
+The provided log snippet does not contain any error messages or exit codes. It only shows the progress of data transfer, making it impossible to determine the root cause of the build failure. More log context is needed.
+
+**🛠️ Fix:**  
+Provide a more complete log including the error message and exit code to diagnose the issue.
+
+**📝 Loại:** `UNKNOWN`
 
 ---
 
