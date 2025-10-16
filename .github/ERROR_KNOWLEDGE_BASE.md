@@ -1,7 +1,7 @@
 # 📚 FFmpeg Android ARM32 - Error Knowledge Base
 
 > **Cập nhật:** Tự động bởi AI (Gemini 2.0 Flash)
-> **Tổng số lỗi:** 4
+> **Tổng số lỗi:** 5
 
 ---
 
@@ -97,6 +97,26 @@ The configure script detected that the cross-compilation tools (like the compile
 
 **🛠️ Gợi ý fix:**  
 Ensure that the PATH environment variable is correctly set to point to the toolchain binaries with the proper prefix. Verify that the TARGET_HOST variable is correctly defined and used in the configure command. Double-check the NDK installation and configuration.
+
+**📝 Loại lỗi:** `CONFIGURE`
+
+---
+
+
+### 🔴 ERROR-001: Cross-compilation size determination failure
+
+**📅** 2025-10-16 | **📦** Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8) | **🔗** [Run #18](https://github.com/share-18001080/113/actions/runs/18558810566)
+
+**🎯 Thư viện:** `lame` | **🏷️ Version:** `ver8` | **🤖 Độ tin cậy:** 95%
+
+**⚠️ Triệu chứng:**  
+configure: WARNING: You are cross compiling, I did not have a change to determine the size of various data types, You have to provide appropriate defines for them in config.h
+
+**🔍 Nguyên nhân gốc rễ:**  
+The configure script for LAME was unable to determine the sizes of fundamental data types (short, int, long, float, double, long double) and the endianness of the target system during cross-compilation. This is because it cannot execute binaries on the target architecture to determine these properties.
+
+**🛠️ Gợi ý fix:**  
+Define the sizes of the data types (SIZEOF_SHORT, SIZEOF_INT, etc.) and the endianness (WORDS_BIGENDIAN) in the config.h file or pass them as compiler flags (e.g., -DSIZEOF_SHORT=2). The log shows the sizes that were detected, so you can use those values. For endianness, you'll need to know if ARM is big-endian or little-endian (it's little-endian).
 
 **📝 Loại lỗi:** `CONFIGURE`
 
