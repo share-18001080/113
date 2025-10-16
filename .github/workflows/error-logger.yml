@@ -1,0 +1,184 @@
+name: Error Logger - Nhật Ký Lỗi Tích Lũy
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  gom-loi-tich-luy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Tải nhật ký lỗi cũ
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: error-log-database
+          path: error-db/
+
+      - name: Khởi tạo nếu chưa có
+        run: |
+          mkdir -p error-db
+          
+          if [ ! -f error-db/all-errors.txt ]; then
+            echo "# NHẬT KÝ LỖI BUILD FFMPEG - Repository 113" > error-db/all-errors.txt
+            echo "# Tự động ghi lại mọi lỗi build để làm context cho AI debug" >> error-db/all-errors.txt
+            echo "# Tạo lúc: $(date)" >> error-db/all-errors.txt
+            echo "" >> error-db/all-errors.txt
+          fi
+          
+          if [ ! -f error-db/error-stats.txt ]; then
+            echo "# THỐNG KÊ LỖI THEO PATTERN" > error-db/error-stats.txt
+            echo "" >> error-db/error-stats.txt
+          fi
+          
+          if [ ! -f error-db/build-history.txt ]; then
+            echo "# LỊCH SỬ BUILD" > error-db/build-history.txt
+            echo "Format: [Ngày] [Workflow] [Run#] [Kết quả] [Thời gian]" >> error-db/build-history.txt
+            echo "" >> error-db/build-history.txt
+          fi
+
+      - name: Tải log của workflow bị lỗi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID=${{ github.event.workflow_run.id }}
+          
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runs/${RUN_ID}/logs \
+            -o current-log.zip
+          
+          unzip -q current-log.zip -d current-log/
+
+      - name: Trích xuất lỗi và ghi vào nhật ký
+        run: |
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          RUN_NUMBER=${{ github.event.workflow_run.run_number }}
+          RUN_ID=${{ github.event.workflow_run.id }}
+          CREATED_AT="${{ github.event.workflow_run.created_at }}"
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          
+          echo "" >> error-db/all-errors.txt
+          echo "════════════════════════════════════════════════════════════" >> error-db/all-errors.txt
+          echo "❌ LỖI BUILD #${RUN_NUMBER}" >> error-db/all-errors.txt
+          echo "════════════════════════════════════════════════════════════" >> error-db/all-errors.txt
+          echo "Workflow: ${WORKFLOW_NAME}" >> error-db/all-errors.txt
+          echo "Run ID: ${RUN_ID}" >> error-db/all-errors.txt
+          echo "Branch: ${BRANCH}" >> error-db/all-errors.txt
+          echo "Thời gian: ${CREATED_AT}" >> error-db/all-errors.txt
+          echo "Link: https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}" >> error-db/all-errors.txt
+          echo "" >> error-db/all-errors.txt
+          echo "--- CÁC DÒNG LỖI QUAN TRỌNG ---" >> error-db/all-errors.txt
+          
+          grep -rh "error:" current-log/ | head -n 100 >> error-db/all-errors.txt || echo "(Không tìm thấy 'error:')" >> error-db/all-errors.txt
+          grep -rh "ERROR:" current-log/ | head -n 50 >> error-db/all-errors.txt || true
+          grep -rh "undefined reference" current-log/ | head -n 50 >> error-db/all-errors.txt || true
+          grep -rh "No such file" current-log/ | head -n 30 >> error-db/all-errors.txt || true
+          grep -rh "not found" current-log/ | head -n 30 >> error-db/all-errors.txt || true
+          grep -rh "failed" current-log/ | head -n 30 >> error-db/all-errors.txt || true
+          
+          echo "" >> error-db/all-errors.txt
+          echo "--- CONTEXT XUNG QUANH LỖI (50 dòng cuối) ---" >> error-db/all-errors.txt
+          find current-log/ -name "*.txt" -exec tail -n 50 {} \; | tail -n 50 >> error-db/all-errors.txt || true
+          echo "" >> error-db/all-errors.txt
+
+      - name: Cập nhật lịch sử build
+        run: |
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          RUN_NUMBER=${{ github.event.workflow_run.run_number }}
+          CREATED_AT="${{ github.event.workflow_run.created_at }}"
+          
+          echo "[$(date +'%Y-%m-%d %H:%M')] ${WORKFLOW_NAME} | Run#${RUN_NUMBER} | ❌ FAILED | ${CREATED_AT}" >> error-db/build-history.txt
+
+      - name: Phân tích pattern lỗi lặp lại
+        run: |
+          echo "# CẬP NHẬT LÚC: $(date)" > error-db/error-stats.txt
+          echo "" >> error-db/error-stats.txt
+          echo "## TOP LỖI XUẤT HIỆN NHIỀU NHẤT:" >> error-db/error-stats.txt
+          echo "" >> error-db/error-stats.txt
+          
+          grep -oh "error:.*" error-db/all-errors.txt | sort | uniq -c | sort -rn | head -n 20 >> error-db/error-stats.txt || echo "Chưa có dữ liệu" >> error-db/error-stats.txt
+          
+          echo "" >> error-db/error-stats.txt
+          echo "## LỖI 'undefined reference':" >> error-db/error-stats.txt
+          grep -oh "undefined reference.*" error-db/all-errors.txt | sort | uniq -c | sort -rn | head -n 10 >> error-db/error-stats.txt || echo "Không có" >> error-db/error-stats.txt
+          
+          echo "" >> error-db/error-stats.txt
+          echo "## LỖI 'not found':" >> error-db/error-stats.txt
+          grep -oh ".*not found" error-db/all-errors.txt | sort | uniq -c | sort -rn | head -n 10 >> error-db/error-stats.txt || echo "Không có" >> error-db/error-stats.txt
+          
+          echo "" >> error-db/error-stats.txt
+          echo "## TỔNG SỐ LẦN BUILD LỖI:" >> error-db/error-stats.txt
+          FAIL_COUNT=$(grep -c "❌ LỖI BUILD" error-db/all-errors.txt || echo "0")
+          echo "${FAIL_COUNT} lần" >> error-db/error-stats.txt
+
+      - name: Tạo file tóm tắt cho Gemini Pro
+        run: |
+          echo "# BÁO CÁO LỖI CHO GEMINI PRO DEBUG" > error-db/gemini-context.txt
+          echo "" >> error-db/gemini-context.txt
+          echo "## THỐNG KÊ TỔNG QUAN" >> error-db/gemini-context.txt
+          
+          FAIL_COUNT=$(grep -c "❌ LỖI BUILD" error-db/all-errors.txt || echo "0")
+          echo "- Tổng số lần build lỗi: ${FAIL_COUNT}" >> error-db/gemini-context.txt
+          echo "- Repository: ${{ github.repository }}" >> error-db/gemini-context.txt
+          echo "- Cập nhật lần cuối: $(date)" >> error-db/gemini-context.txt
+          echo "" >> error-db/gemini-context.txt
+          
+          echo "## TOP 10 LỖI PHỔ BIẾN NHẤT (Pattern lặp lại)" >> error-db/gemini-context.txt
+          grep -oh "error:.*" error-db/all-errors.txt | sort | uniq -c | sort -rn | head -n 10 >> error-db/gemini-context.txt || echo "Chưa đủ dữ liệu" >> error-db/gemini-context.txt
+          
+          echo "" >> error-db/gemini-context.txt
+          echo "## LỖI CỦA PHIÊN BẢN GÂN NHẤT (Chi tiết)" >> error-db/gemini-context.txt
+          tail -n 200 error-db/all-errors.txt >> error-db/gemini-context.txt
+          
+          echo "" >> error-db/gemini-context.txt
+          echo "## HƯỚNG DẪN SỬ DỤNG" >> error-db/gemini-context.txt
+          echo "1. Copy toàn bộ nội dung file này" >> error-db/gemini-context.txt
+          echo "2. Paste vào Gemini 2.5 Pro" >> error-db/gemini-context.txt
+          echo "3. Yêu cầu: 'Phân tích pattern lỗi và đưa ra fix cụ thể cho workflow YAML'" >> error-db/gemini-context.txt
+
+      - name: Hiển thị tóm tắt trên GitHub UI
+        run: |
+          echo "## 📋 Nhật Ký Lỗi Đã Cập Nhật" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow bị lỗi:** ${{ github.event.workflow_run.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run số:** #${{ github.event.workflow_run.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Thống kê" >> $GITHUB_STEP_SUMMARY
+          
+          FAIL_COUNT=$(grep -c "❌ LỖI BUILD" error-db/all-errors.txt || echo "0")
+          echo "- Tổng số lần build lỗi: **${FAIL_COUNT}**" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔥 Top 5 lỗi phổ biến:" >> $GITHUB_STEP_SUMMARY
+          echo '```
+          grep -oh "error:.*" error-db/all-errors.txt | sort | uniq -c | sort -rn | head -n 5 >> $GITHUB_STEP_SUMMARY || echo "Chưa đủ dữ liệu" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Tải nhật ký đầy đủ" >> $GITHUB_STEP_SUMMARY
+          echo "Artifact: \`error-log-database\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**File quan trọng:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`gemini-context.txt\` - Copy paste cho Gemini Pro" >> $GITHUB_STEP_SUMMARY
+          echo "- \`all-errors.txt\` - Toàn bộ lỗi chi tiết" >> $GITHUB_STEP_SUMMARY
+          echo "- \`error-stats.txt\` - Thống kê pattern lỗi" >> $GITHUB_STEP_SUMMARY
+          echo "- \`build-history.txt\` - Lịch sử build" >> $GITHUB_STEP_SUMMARY
+
+      - name: Dọn dẹp
+        run: rm -rf current-log/ current-log.zip
+
+      - name: Upload nhật ký lỗi (GHI ĐÈ)
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-log-database
+          path: error-db/
+          retention-days: 90
+          overwrite: true
