@@ -1,0 +1,322 @@
+name: AI Knowledge Base (Large Text - 200KB)
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  ai-analyze-error:
+    runs-on: ubuntu-latest
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      contains(github.event.workflow_run.name, 'ver') &&
+      !contains(github.event.workflow_run.name, 'AI Knowledge Base')
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Debug workflow info
+        run: |
+          echo "## 🔍 Workflow Info" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event.workflow_run.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID:** ${{ github.event.workflow_run.id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run #:** ${{ github.event.workflow_run.run_number }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Download and extract error context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FAILED_RUN_ID=${{ github.event.workflow_run.id }}
+          
+          echo "📥 Downloading log"
+          
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${FAILED_RUN_ID}/logs" \
+            -o current-log.zip
+          
+          if [ ! -f current-log.zip ]; then
+            echo "❌ Failed"
+            exit 1
+          fi
+          
+          SIZE=$(stat -c%s current-log.zip)
+          echo "✅ Downloaded: ${SIZE} bytes"
+          
+          unzip -q current-log.zip -d current-log/
+          find current-log/ -name "*.txt" -exec cat {} \; > full-log.txt
+          
+          TOTAL_LINES=$(wc -l < full-log.txt)
+          echo "📊 Total: $TOTAL_LINES lines"
+          
+          echo "🔍 Finding exit code..."
+          EXIT_LINE=$(grep -n "exit code [1-9]" full-log.txt | head -n 1 | cut -d: -f1)
+          
+          if [ -z "$EXIT_LINE" ]; then
+            EXIT_LINE=$(grep -n "##\[error\]" full-log.txt | head -n 1 | cut -d: -f1)
+          fi
+          
+          if [ -n "$EXIT_LINE" ]; then
+            echo "✅ Found at line: $EXIT_LINE"
+            
+            START=$((EXIT_LINE - 3000))
+            END=$((EXIT_LINE + 100))
+            
+            [ $START -lt 1 ] && START=1
+            [ $END -gt $TOTAL_LINES ] && END=$TOTAL_LINES
+            
+            sed -n "${START},${END}p" full-log.txt > log-for-ai.txt
+            
+            EXTRACTED=$(wc -l < log-for-ai.txt)
+            echo "📤 Extracted: $EXTRACTED lines"
+          else
+            tail -n 5000 full-log.txt > log-for-ai.txt
+          fi
+
+      - name: Test API
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "❌ No API key"
+            exit 1
+          fi
+          echo "✅ API key OK"
+
+      - name: Extract version
+        id: extract_ver
+        run: |
+          VERSION=$(echo "${{ github.event.workflow_run.name }}" | grep -oE 'ver[0-9]+' || echo "ver-unknown")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Call Gemini API (200KB text limit)
+        id: ai_analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          # CRITICAL: Send 200KB instead of 20KB
+          LOG_TEXT=$(head -c 200000 log-for-ai.txt | tr -d '\000-\037' | sed 's/"/\\"/g' | sed 's/\\/\\\\/g')
+          
+          cat > prompt.txt << 'EOFPROMPT'
+          Bạn là chuyên gia phân tích lỗi FFmpeg Android ARM32.
+          
+          WORKFLOW: Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8)
+          VERSION: ver8
+          
+          CONTEXT:
+          - ver8 đang build LibASS (subtitle renderer)
+          - Thư viện OK ở ver7: x264, x265, vpx, opus, lame, twolame, ogg, vorbis, theora, speex, gsm, fribidi, fdk-aac, aom, soxr, webp, freetype, openjpeg
+          - Log dưới đây là context ĐẦY ĐỦ xung quanh exit code
+          
+          NHIỆM VỤ: Phân tích và trả về JSON:
+          {
+            "error_id": "ERROR-XXX",
+            "error_name": "Mô tả chính xác",
+            "root_cause": "Nguyên nhân gốc rễ",
+            "affected_library": "libass",
+            "error_type": "DEPENDENCY|LINKER|CONFIGURE|SYNTAX|UNKNOWN",
+            "symptoms": ["lỗi chính xác"],
+            "fix_suggestion": "Cách fix với code/command",
+            "confidence": 90
+          }
+          
+          LƯU Ý:
+          - Trả về OBJECT {}, KHÔNG ARRAY
+          - Tìm "Building LibASS" để xác định thư viện
+          - Tìm "ERROR:" hoặc "error:" cho lỗi chính
+          
+          LOG (200KB full context):
+          
+          EOFPROMPT
+          
+          echo "$LOG_TEXT" >> prompt.txt
+          
+          ESCAPED=$(jq -Rs . < prompt.txt)
+          
+          echo "📤 Calling Gemini..."
+          
+          RESP=$(curl -s -w "\nHTTP:%{http_code}" -X POST \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=$GEMINI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"contents\": [{
+                \"parts\": [{
+                  \"text\": $ESCAPED
+                }]
+              }],
+              \"generationConfig\": {
+                \"temperature\": 0.1,
+                \"maxOutputTokens\": 2048,
+                \"responseMimeType\": \"application/json\"
+              }
+            }")
+          
+          HTTP=$(echo "$RESP" | tail -n 1 | cut -d: -f2)
+          BODY=$(echo "$RESP" | sed '$d')
+          
+          echo "HTTP: $HTTP"
+          
+          if [ "$HTTP" != "200" ]; then
+            echo "❌ API error"
+            cat > ai-analysis.json << 'EOF'
+          {
+            "error_id": "ERROR-999",
+            "error_name": "API error",
+            "root_cause": "Gemini API failed",
+            "affected_library": "unknown",
+            "error_type": "API_ERROR",
+            "symptoms": ["API error"],
+            "fix_suggestion": "Retry",
+            "confidence": 20
+          }
+          EOF
+          else
+            AI=$(echo "$BODY" | jq -r '.candidates[0].content.parts[0].text')
+            
+            if [ -z "$AI" ] || [ "$AI" = "null" ]; then
+              cat > ai-analysis.json << 'EOF'
+          {
+            "error_id": "ERROR-998",
+            "error_name": "Empty response",
+            "root_cause": "Empty",
+            "affected_library": "unknown",
+            "error_type": "API_ERROR",
+            "symptoms": ["Empty"],
+            "fix_suggestion": "Retry",
+            "confidence": 15
+          }
+          EOF
+            else
+              echo "$AI" > ai-analysis-raw.json
+              
+              if echo "$AI" | jq -e 'type == "array"' > /dev/null 2>&1; then
+                echo "$AI" | jq '.[0]' > ai-analysis.json
+              else
+                echo "$AI" > ai-analysis.json
+              fi
+              
+              if ! jq empty ai-analysis.json 2>/dev/null; then
+                cat > ai-analysis.json << 'EOF'
+          {
+            "error_id": "ERROR-997",
+            "error_name": "Invalid JSON",
+            "root_cause": "Parse error",
+            "affected_library": "unknown",
+            "error_type": "API_ERROR",
+            "symptoms": ["Invalid"],
+            "fix_suggestion": "Review",
+            "confidence": 10
+          }
+          EOF
+              fi
+            fi
+          fi
+          
+          cat ai-analysis.json
+          
+          echo "error_id=$(jq -r '.error_id // "ERROR-000"' ai-analysis.json)" >> $GITHUB_OUTPUT
+          echo "error_name=$(jq -r '.error_name // "Unknown"' ai-analysis.json)" >> $GITHUB_OUTPUT
+          echo "affected_lib=$(jq -r '.affected_library // "unknown"' ai-analysis.json)" >> $GITHUB_OUTPUT
+
+      - name: Initialize KB
+        run: |
+          if [ ! -f .github/ERROR_KNOWLEDGE_BASE.md ]; then
+            cat > .github/ERROR_KNOWLEDGE_BASE.md << 'EOF'
+          # 📚 FFmpeg Android ARM32 - Error Knowledge Base
+
+          > **Phân tích:** AI với 200KB context  
+          > **Tổng:** 0
+
+          ## 📋 Quick Reference
+
+          | ID | Lỗi | Thư viện | Ver | Ngày |
+          |----|-----|----------|-----|------|
+
+          ## 🔴 Chi tiết
+
+          EOF
+            
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .github/ERROR_KNOWLEDGE_BASE.md
+            git commit -m "docs: Init KB"
+          fi
+
+      - name: Add entry
+        env:
+          ERROR_ID: ${{ steps.ai_analysis.outputs.error_id }}
+          ERROR_NAME: ${{ steps.ai_analysis.outputs.error_name }}
+          AFFECTED_LIB: ${{ steps.ai_analysis.outputs.affected_lib }}
+          VERSION: ${{ steps.extract_ver.outputs.version }}
+        run: |
+          JSON=$(cat ai-analysis.json)
+          
+          ROOT=$(echo "$JSON" | jq -r '.root_cause // "N/A"')
+          TYPE=$(echo "$JSON" | jq -r '.error_type // "UNKNOWN"')
+          FIX=$(echo "$JSON" | jq -r '.fix_suggestion // "N/A"')
+          SYMP=$(echo "$JSON" | jq -r '.symptoms // ["N/A"] | join("\n- ")')
+          CONF=$(echo "$JSON" | jq -r '.confidence // 0')
+          
+          sed -i "/^| ID | Lỗi/a | $ERROR_ID | $ERROR_NAME | $AFFECTED_LIB | $VERSION | $(date +%Y-%m-%d) |" .github/ERROR_KNOWLEDGE_BASE.md
+          
+          TOTAL=$(grep -c "^### 🔴 ERROR-" .github/ERROR_KNOWLEDGE_BASE.md 2>/dev/null || echo "0")
+          NEW=$((TOTAL + 1))
+          sed -i "s/Tổng:\*\* [0-9]*/Tổng:** $NEW/" .github/ERROR_KNOWLEDGE_BASE.md
+          
+          cat >> .github/ERROR_KNOWLEDGE_BASE.md << EOF
+
+          ### 🔴 $ERROR_ID: $ERROR_NAME
+
+          **📅** $(date +%Y-%m-%d) | **🔗** [Run #${{ github.event.workflow_run.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }})
+
+          **🎯** \`$AFFECTED_LIB\` | **🏷️** \`$VERSION\` | **🤖** ${CONF}%
+
+          **⚠️ Triệu chứng:**
+          - $SYMP
+
+          **🔍 Nguyên nhân:**  
+          $ROOT
+
+          **🛠️ Fix:**  
+          $FIX
+
+          **📝** \`$TYPE\`
+
+          ---
+
+          EOF
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/ERROR_KNOWLEDGE_BASE.md
+          if ! git diff --staged --quiet; then
+            git commit -m "🤖 ${{ steps.ai_analysis.outputs.error_id }} [${{ steps.extract_ver.outputs.version }}]"
+            git push
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## ✅ Complete" >> $GITHUB_STEP_SUMMARY
+          echo "**Ver:** ${{ steps.extract_ver.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Error:** ${{ steps.ai_analysis.outputs.error_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+          cat ai-analysis.json 2>/dev/null || echo "{}"
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf current-log/ current-log.zip full-log.txt log-for-ai.txt ai-analysis.json ai-analysis-raw.json prompt.txt 2>/dev/null || true
