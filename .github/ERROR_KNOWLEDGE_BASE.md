@@ -4,13 +4,14 @@
 > 
 > **Cập nhật:** Tự động bởi GitHub Actions
 > 
-> **Tổng số lỗi:** 2
+> **Tổng số lỗi:** 3
 
 ---
 
 ## 📋 Quick Reference
 
 | ID | Tên lỗi | Tần suất | Workflow | Ngày |
+| ERROR-903 | Build failed - See details | 226x | Smart Knowledge Base (Gemini AI) | 2025-10-16 |
 | ERROR-902 | Build failed - See details | 1x | Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8) | 2025-10-16 |
 | ERROR-900 | Build failed - See details | 1x | Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8) | 2025-10-16 |
 |----|---------|----------|----------|------|
@@ -220,6 +221,89 @@
 **📝 Status:** 🔴 Chưa fix
 
 **🏷️ Tags:** `Unknown` `auto-generated` `run-4`
+
+---
+
+
+### 🔴 ERROR-903: Build failed - See details
+
+**📅 Ngày phát hiện:** 2025-10-16
+
+**📦 Workflow:** Smart Knowledge Base (Gemini AI)
+
+**🔢 Run:** [#1](https://github.com/share-18001080/113/actions/runs/18554535942)
+
+**🎯 Tần suất:** Lần thứ 226 gặp lỗi này
+
+**⚠️ Triệu chứng:**
+```bash
+
+```
+
+**📋 Context (100 dòng cuối log):**
+```
+2025-10-16T08:04:10.9395461Z ##[endgroup]
+2025-10-16T08:04:11.0444132Z Syncing repository: share-18001080/113
+2025-10-16T08:04:11.0446382Z ##[group]Getting Git version info
+2025-10-16T08:04:11.0447048Z Working directory is '/home/runner/work/113/113'
+2025-10-16T08:04:11.0447962Z [command]/usr/bin/git version
+2025-10-16T08:04:11.0487854Z git version 2.51.0
+2025-10-16T08:04:11.0513177Z ##[endgroup]
+2025-10-16T08:04:11.0526825Z Temporarily overriding HOME='/home/runner/work/_temp/9c6a9b73-3ac1-4162-832d-27dbebb16fdf' before making global git config changes
+2025-10-16T08:04:11.0528196Z Adding repository directory to the temporary git global config as a safe directory
+2025-10-16T08:04:11.0531608Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/113/113
+2025-10-16T08:04:11.0565421Z Deleting the contents of '/home/runner/work/113/113'
+2025-10-16T08:04:11.0569235Z ##[group]Initializing the repository
+2025-10-16T08:04:11.0572859Z [command]/usr/bin/git init /home/runner/work/113/113
+2025-10-16T08:04:11.0649296Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-10-16T08:04:11.0650923Z hint: is subject to change. To configure the initial branch name to use in all
+2025-10-16T08:04:11.0652492Z hint: of your new repositories, which will suppress this warning, call:
+2025-10-16T08:04:11.0653735Z hint:
+2025-10-16T08:04:11.0654697Z hint: 	git config --global init.defaultBranch <name>
+2025-10-16T08:04:11.0655445Z hint:
+2025-10-16T08:04:11.0656234Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-10-16T08:04:11.0657140Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-10-16T08:04:11.0658100Z hint:
+2025-10-16T08:04:11.0658488Z hint: 	git branch -m <name>
+2025-10-16T08:04:11.0658925Z hint:
+2025-10-16T08:04:11.0659883Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-10-16T08:04:11.0660941Z Initialized empty Git repository in /home/runner/work/113/113/.git/
+2025-10-16T08:04:11.0664723Z [command]/usr/bin/git remote add origin https://github.com/share-18001080/113
+2025-10-16T08:04:11.0697775Z ##[endgroup]
+2025-10-16T08:04:11.0698516Z ##[group]Disabling automatic garbage collection
+2025-10-16T08:04:11.0703288Z [command]/usr/bin/git config --local gc.auto 0
+2025-10-16T08:04:11.0732675Z ##[endgroup]
+2025-10-16T08:04:11.0733899Z ##[group]Setting up auth
+2025-10-16T08:04:11.0740162Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-10-16T08:04:11.0770907Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-10-16T08:04:11.1043956Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-10-16T08:04:11.1072455Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-10-16T08:04:11.1290147Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-10-16T08:04:11.1332757Z ##[endgroup]
+2025-10-16T08:04:11.1333613Z ##[group]Fetching the repository
+2025-10-16T08:04:11.1341531Z [command]/usr/bin/git -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+2025-10-16T08:04:11.4330597Z From https://github.com/share-18001080/113
+2025-10-16T08:04:11.4333353Z  * [new branch]      main       -> origin/main
+2025-10-16T08:04:11.4372336Z [command]/usr/bin/git branch --list --remote origin/main
+2025-10-16T08:04:11.4396484Z   origin/main
+2025-10-16T08:04:11.4406999Z [command]/usr/bin/git rev-parse refs/remotes/origin/main
+2025-10-16T08:04:11.4429207Z 6f0663a22d504e65e4ed13c6bd4bec534a5c559f
+2025-10-16T08:04:11.4435317Z ##[endgroup]
+2025-10-16T08:04:11.4436663Z ##[group]Determining the checkout info
+2025-10-16T08:04:11.4437699Z ##[endgroup]
+2025-10-16T08:04:11.4440607Z [command]/usr/bin/git sparse-checkout disable
+```
+
+**🔍 Nguyên nhân gốc rễ:**
+- [ ] TODO: Cần phân tích thủ công
+- Loại lỗi: Unknown
+
+**🛠️ Fix đã thử:**
+- [ ] TODO: Cập nhật sau khi thử fix
+
+**📝 Status:** 🔴 Chưa fix
+
+**🏷️ Tags:** `Unknown` `auto-generated` `run-1`
 
 ---
 
