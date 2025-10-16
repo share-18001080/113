@@ -1,0 +1,372 @@
+name: AI Knowledge Base (With Detail Log Files)
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  ai-analyze-error:
+    runs-on: ubuntu-latest
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      contains(github.event.workflow_run.name, 'ver') &&
+      !contains(github.event.workflow_run.name, 'AI Knowledge Base')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Download and analyze log
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/logs" \
+            -o current-log.zip
+          
+          unzip -q current-log.zip -d current-log/
+          find current-log/ -name "*.txt" -exec cat {} \; > full-log.txt
+          
+          TOTAL=$(wc -l < full-log.txt)
+          echo "📊 Full log: $TOTAL lines"
+          
+          # Find exit code
+          EXIT_LINE=$(grep -n "exit code [1-9]" full-log.txt | head -n 1 | cut -d: -f1)
+          if [ -z "$EXIT_LINE" ]; then
+            EXIT_LINE=$(grep -n "##\[error\]" full-log.txt | head -n 1 | cut -d: -f1)
+          fi
+          
+          if [ -n "$EXIT_LINE" ]; then
+            echo "✅ Exit code at line: $EXIT_LINE"
+            
+            # Extract 20 lines BEFORE exit code (error context)
+            START=$((EXIT_LINE - 20))
+            [ $START -lt 1 ] && START=1
+            
+            sed -n "${START},${EXIT_LINE}p" full-log.txt > error-context-20.txt
+            echo "📤 Error context: 20 lines"
+            
+            # CRITICAL: Find detail log file reference
+            DETAIL_LOG_PATH=$(grep -o "A full log can be found at .*" error-context-20.txt | head -n 1 | sed 's/A full log can be found at //' | tr -d '\r\n ')
+            
+            if [ -n "$DETAIL_LOG_PATH" ]; then
+              echo "✅ Found detail log reference: $DETAIL_LOG_PATH"
+              echo "$DETAIL_LOG_PATH" > detail-log-path.txt
+              
+              # Try to find the file in log
+              DETAIL_LOG_BASENAME=$(basename "$DETAIL_LOG_PATH")
+              echo "🔍 Searching for content of: $DETAIL_LOG_BASENAME"
+              
+              # Search for log content in full log (often included in some runners)
+              if grep -q "$DETAIL_LOG_BASENAME" full-log.txt; then
+                echo "✅ Found detail log content in main log"
+                # Extract content after the file mention (next 100 lines)
+                grep -A 100 "$DETAIL_LOG_BASENAME" full-log.txt | head -n 100 > detail-log-content.txt
+              else
+                echo "⚠️ Detail log content not found in main log"
+                touch detail-log-content.txt
+              fi
+            else
+              echo "⚠️ No detail log reference found"
+              touch detail-log-path.txt
+              touch detail-log-content.txt
+            fi
+          else
+            # Fallback
+            tail -n 20 full-log.txt > error-context-20.txt
+            touch detail-log-path.txt
+            touch detail-log-content.txt
+          fi
+
+      - name: Extract version
+        id: extract_ver
+        run: |
+          VERSION=$(echo "${{ github.event.workflow_run.name }}" | grep -oE 'ver[0-9]+' || echo "ver-unknown")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Call Gemini with comprehensive context
+        id: ai_analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          DETAIL_LOG_PATH=$(cat detail-log-path.txt)
+          HAS_DETAIL=$([ -s detail-log-content.txt ] && echo "yes" || echo "no")
+          
+          cat > analysis-prompt.txt << 'EOFPROMPT'
+          Bạn là chuyên gia phân tích lỗi FFmpeg Android ARM32.
+          
+          WORKFLOW: Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8)
+          VERSION: ver8
+          
+          CONTEXT:
+          - ver8 đang build LibASS (subtitle renderer)
+          - Thư viện OK: x264, x265, vpx, opus, lame, fribidi, fdk-aac, aom, soxr, webp, freetype
+          
+          NHIỆM VỤ: Phân tích và trả về JSON NGẮN GỌN:
+          {
+            "error_id": "ERROR-XXX",
+            "error_name": "Mô tả ngắn",
+            "root_cause": "Nguyên nhân (max 100 từ)",
+            "affected_library": "libass",
+            "error_type": "DEPENDENCY|LINKER|CONFIGURE|SYNTAX|UNKNOWN",
+            "symptoms": ["triệu chứng"],
+            "fix_suggestion": "Cách fix (max 150 từ)",
+            "confidence": 90
+          }
+          
+          LƯU Ý: Trả về OBJECT {}, KHÔNG ARRAY
+          
+          ===== 1. ERROR CONTEXT (20 dòng trước exit code) =====
+          
+          EOFPROMPT
+          
+          cat error-context-20.txt >> analysis-prompt.txt
+          
+          if [ "$HAS_DETAIL" = "yes" ]; then
+            cat >> analysis-prompt.txt << EOFDETAIL
+          
+          ===== 2. DETAIL LOG FILE: $DETAIL_LOG_PATH =====
+          
+          EOFDETAIL
+            cat detail-log-content.txt >> analysis-prompt.txt
+          fi
+          
+          PROMPT_ESCAPED=$(jq -Rs . < analysis-prompt.txt)
+          
+          cat > api-payload.json << EOFPAYLOAD
+          {
+            "contents": [{
+              "parts": [{
+                "text": $PROMPT_ESCAPED
+              }]
+            }],
+            "generationConfig": {
+              "temperature": 0.1,
+              "maxOutputTokens": 2048,
+              "responseMimeType": "application/json"
+            }
+          }
+          EOFPAYLOAD
+          
+          echo "📤 Calling Gemini..."
+          
+          RESP=$(curl -s -w "\nHTTP:%{http_code}" -X POST \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=$GEMINI_API_KEY" \
+            -H "Content-Type: application/json" \
+            --data-binary @api-payload.json)
+          
+          HTTP=$(echo "$RESP" | tail -n 1 | cut -d: -f2)
+          BODY=$(echo "$RESP" | sed '$d')
+          
+          echo "HTTP: $HTTP"
+          
+          if [ "$HTTP" != "200" ]; then
+            cat > ai-analysis.json << 'EOF'
+          {"error_id":"ERROR-999","error_name":"API error","root_cause":"Gemini failed","affected_library":"unknown","error_type":"API_ERROR","symptoms":["API error"],"fix_suggestion":"Review manually","confidence":20}
+          EOF
+          else
+            AI=$(echo "$BODY" | jq -r '.candidates[0].content.parts[0].text')
+            
+            if [ -z "$AI" ] || [ "$AI" = "null" ]; then
+              cat > ai-analysis.json << 'EOF'
+          {"error_id":"ERROR-998","error_name":"Empty","root_cause":"Empty","affected_library":"unknown","error_type":"API_ERROR","symptoms":["Empty"],"fix_suggestion":"Retry","confidence":15}
+          EOF
+            else
+              if echo "$AI" | jq -e 'type == "array"' > /dev/null 2>&1; then
+                echo "$AI" | jq '.[0]' > ai-analysis.json
+              else
+                echo "$AI" > ai-analysis.json
+              fi
+              
+              if ! jq empty ai-analysis.json 2>/dev/null; then
+                cat > ai-analysis.json << 'EOF'
+          {"error_id":"ERROR-997","error_name":"Invalid JSON","root_cause":"Parse error","affected_library":"unknown","error_type":"API_ERROR","symptoms":["Invalid"],"fix_suggestion":"Review","confidence":10}
+          EOF
+              fi
+            fi
+          fi
+          
+          cat ai-analysis.json
+          
+          echo "error_id=$(jq -r '.error_id // "ERROR-000"' ai-analysis.json)" >> $GITHUB_OUTPUT
+          echo "error_name=$(jq -r '.error_name // "Unknown"' ai-analysis.json)" >> $GITHUB_OUTPUT
+          echo "affected_lib=$(jq -r '.affected_library // "unknown"' ai-analysis.json)" >> $GITHUB_OUTPUT
+
+      - name: Create summary
+        id: create_summary
+        run: |
+          mkdir -p .github/error-summaries
+          
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          SAFE_NAME=$(echo "$WORKFLOW_NAME" | sed 's/[^a-zA-Z0-9-]/_/g')
+          RUN_NUM="${{ github.event.workflow_run.run_number }}"
+          DATE=$(date +%Y%m%d-%H%M%S)
+          
+          SUMMARY_FILE="${SAFE_NAME}_run${RUN_NUM}_${DATE}.md"
+          SUMMARY_PATH=".github/error-summaries/${SUMMARY_FILE}"
+          
+          DETAIL_LOG_PATH=$(cat detail-log-path.txt)
+          
+          cat > "$SUMMARY_PATH" << EOFSUMMARY
+          # FFmpeg Build Error Summary
+          
+          ## Workflow Info
+          
+          - **Workflow:** ${{ github.event.workflow_run.name }}
+          - **Run:** #${{ github.event.workflow_run.run_number }}
+          - **Version:** ${{ steps.extract_ver.outputs.version }}
+          - **Date:** $(date +%Y-%m-%d\ %H:%M:%S)
+          - **GitHub:** https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
+          
+          ## AI Analysis
+          
+          \`\`\`json
+          $(cat ai-analysis.json)
+          \`\`\`
+          
+          ### Details
+          
+          **Error ID:** $(jq -r '.error_id' ai-analysis.json)  
+          **Error Name:** $(jq -r '.error_name' ai-analysis.json)  
+          **Library:** $(jq -r '.affected_library' ai-analysis.json)  
+          **Type:** $(jq -r '.error_type' ai-analysis.json)  
+          **Confidence:** $(jq -r '.confidence' ai-analysis.json)%
+          
+          **Symptoms:**
+          $(jq -r '.symptoms | map("- " + .) | join("\n")' ai-analysis.json)
+          
+          **Root Cause:**
+          $(jq -r '.root_cause' ai-analysis.json)
+          
+          **Fix:**
+          $(jq -r '.fix_suggestion' ai-analysis.json)
+          
+          ## Error Context (20 lines before exit code)
+          
+          \`\`\`
+          $(cat error-context-20.txt)
+          \`\`\`
+          
+          ## Detail Log Reference
+          
+          \`\`\`
+          $DETAIL_LOG_PATH
+          \`\`\`
+          
+          $(if [ -s detail-log-content.txt ]; then
+            echo "### Detail Log Content"
+            echo ""
+            echo "\`\`\`"
+            cat detail-log-content.txt
+            echo "\`\`\`"
+          fi)
+          
+          ---
+          
+          **For Perplexity:** Analyze this error and suggest detailed fix with code examples.
+          EOFSUMMARY
+          
+          echo "summary_file=$SUMMARY_FILE" >> $GITHUB_OUTPUT
+          echo "✅ Created: $SUMMARY_FILE"
+
+      - name: Init KB
+        run: |
+          if [ ! -f .github/ERROR_KNOWLEDGE_BASE.md ]; then
+            cat > .github/ERROR_KNOWLEDGE_BASE.md << 'EOF'
+          # 📚 FFmpeg Android ARM32 - Error Knowledge Base
+          
+          > **AI:** Gemini with detail log files  
+          > **Total:** 0
+          
+          ## 📋 Quick Reference
+          
+          | ID | Error | Library | Ver | Summary | Date |
+          |----|-------|---------|-----|---------|------|
+          
+          ## 🔴 Details
+          
+          EOF
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .github/ERROR_KNOWLEDGE_BASE.md
+            git commit -m "docs: Init KB"
+          fi
+
+      - name: Add entry
+        env:
+          ERROR_ID: ${{ steps.ai_analysis.outputs.error_id }}
+          ERROR_NAME: ${{ steps.ai_analysis.outputs.error_name }}
+          AFFECTED_LIB: ${{ steps.ai_analysis.outputs.affected_lib }}
+          VERSION: ${{ steps.extract_ver.outputs.version }}
+          SUMMARY_FILE: ${{ steps.create_summary.outputs.summary_file }}
+        run: |
+          JSON=$(cat ai-analysis.json)
+          ROOT=$(echo "$JSON" | jq -r '.root_cause // "N/A"')
+          TYPE=$(echo "$JSON" | jq -r '.error_type // "UNKNOWN"')
+          FIX=$(echo "$JSON" | jq -r '.fix_suggestion // "N/A"')
+          SYMP=$(echo "$JSON" | jq -r '.symptoms // ["N/A"] | join(", ")')
+          CONF=$(echo "$JSON" | jq -r '.confidence // 0')
+          
+          sed -i "/^| ID/a | $ERROR_ID | $ERROR_NAME | $AFFECTED_LIB | $VERSION | [\`$SUMMARY_FILE\`](.github/error-summaries/$SUMMARY_FILE) | $(date +%Y-%m-%d) |" .github/ERROR_KNOWLEDGE_BASE.md
+          
+          TOTAL=$(grep -c "^### 🔴" .github/ERROR_KNOWLEDGE_BASE.md 2>/dev/null || echo "0")
+          NEW=$((TOTAL + 1))
+          sed -i "s/Total:\*\* [0-9]*/Total:** $NEW/" .github/ERROR_KNOWLEDGE_BASE.md
+          
+          DETAIL_LOG=$(cat detail-log-path.txt)
+          
+          cat >> .github/ERROR_KNOWLEDGE_BASE.md << EOF
+          
+          ### 🔴 $ERROR_ID: $ERROR_NAME
+          
+          **📅** $(date +%Y-%m-%d) | **🔗** [Run #${{ github.event.workflow_run.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }})  
+          **🎯** \`$AFFECTED_LIB\` | **🏷️** \`$VERSION\` | **🤖** ${CONF}%
+          
+          **📄 Summary:** [\`$SUMMARY_FILE\`](.github/error-summaries/$SUMMARY_FILE)  
+          **📋 Detail Log:** \`$DETAIL_LOG\`
+          
+          **⚠️** $SYMP  
+          **🔍** $ROOT  
+          **🛠️** $FIX
+          
+          ---
+          
+          EOF
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/error-summaries/ .github/ERROR_KNOWLEDGE_BASE.md
+          if ! git diff --staged --quiet; then
+            git commit -m "🤖 ${{ steps.ai_analysis.outputs.error_id }} [${{ steps.extract_ver.outputs.version }}] + Detail log"
+            git push
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## ✅ Complete" >> $GITHUB_STEP_SUMMARY
+          echo "**Ver:** ${{ steps.extract_ver.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Error:** ${{ steps.ai_analysis.outputs.error_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Summary:** \`.github/error-summaries/${{ steps.create_summary.outputs.summary_file }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Detail Log:** \`$(cat detail-log-path.txt)\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+          cat ai-analysis.json
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf current-log/ current-log.zip full-log.txt error-context-20.txt detail-log-path.txt detail-log-content.txt analysis-prompt.txt api-payload.json ai-analysis.json 2>/dev/null || true
