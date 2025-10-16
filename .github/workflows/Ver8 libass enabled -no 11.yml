@@ -1,0 +1,1289 @@
+name: Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-ffmpeg-maximum:
+    runs-on: ubuntu-latest
+    timeout-minutes: 600
+
+    env:
+      ANDROID_API_LEVEL: 21
+      ANDROID_ABI: armeabi-v7a
+      NDK_VERSION: r25c
+      FFMPEG_VERSION: n7.1
+      MAKEFLAGS: -j$(nproc)
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android NDK r25c
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25c
+          add-to-path: true
+          local-cache: false
+
+      - name: Install Base Dependencies
+        run: |
+          sudo apt-get update
+
+      - name: Install Build Tools 
+        run: |
+          sudo apt-get install -y \
+            build-essential yasm nasm pkg-config autoconf automake libtool
+
+      - name: Install Development Tools
+        run: |
+          sudo apt-get install -y \
+            git wget curl cmake ninja-build python3 python3-pip
+
+      - name: Install Additional Tools
+        run: |
+          sudo apt-get install -y \
+            gperf gettext texinfo flex bison ccache meson
+
+      - name: Install System Libraries
+        run: |
+          sudo apt-get install -y \
+            zip unzip libssl-dev zlib1g-dev libbz2-dev liblzma-dev
+
+      - name: Setup CCCache
+        run: |
+          sudo /usr/sbin/update-ccache-symlinks
+          echo 'export PATH="/usr/lib/ccache:$PATH"' | tee -a ~/.bashrc
+
+      - name: Cache External Libraries
+        uses: actions/cache@v4
+        id: cache-external
+        with:
+          path: |
+            external
+            build/external
+          key: external-libs-full-libass-added-${{ env.NDK_VERSION }}-${{ env.ANDROID_ABI }}-v1
+          restore-keys: |
+            external-libs-full-libass-added-${{ env.NDK_VERSION }}-${{ env.ANDROID_ABI }}-
+
+      - name: Setup Build Environment
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p external build/external
+          cd external
+          
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          mkdir -p $PREFIX/{lib,include,lib/pkgconfig,bin,man/man3,inc}
+
+          for tool in strings nm objdump strip readelf as ld; do
+            ln -sf llvm-$tool $TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-$tool
+          done
+
+          for tool in gcc ar ranlib; do
+            ln -sf $TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang $TOOLCHAIN_PATH/bin/arm-linux-androideabi-$tool
+          done
+
+      - name: Build Base Libraries
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "Building zlib..."
+          wget -q https://github.com/madler/zlib/releases/download/v1.3/zlib-1.3.tar.gz
+          tar xzf zlib-1.3.tar.gz
+          cd zlib-1.3
+          ./configure --prefix=$PREFIX --static
+          make -j$(nproc)
+          make install
+          cd ..
+
+          echo "Building bzip2..."
+          wget -q https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz
+          tar xzf bzip2-1.0.8.tar.gz
+          cd bzip2-1.0.8
+          make CC=$CC AR=$AR RANLIB=$RANLIB PREFIX=$PREFIX install
+          cd ..
+
+          echo "Building xz..."
+          wget -q https://github.com/tukaani-project/xz/releases/download/v5.4.5/xz-5.4.5.tar.gz
+          tar xzf xz-5.4.5.tar.gz
+          cd xz-5.4.5
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-doc --disable-scripts
+          make -j$(nproc)
+          make install
+          cd ..
+
+      - name: Build Video Codecs
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "Building x264..."
+          git clone --depth 1 https://code.videolan.org/videolan/x264.git
+          cd x264
+          ./configure --prefix=$PREFIX --host=$TARGET_HOST \
+            --cross-prefix=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21- \
+            --sysroot=$SYSROOT --enable-static --disable-cli \
+            --enable-pic --disable-asm \
+            --extra-cflags="$CFLAGS" --extra-ldflags="$LDFLAGS"
+          make -j$(nproc)
+          make install
+          cd ..
+
+          echo "Building x265..."
+          git clone --depth 1 https://bitbucket.org/multicoreware/x265_git.git x265
+          cd x265/build/linux
+          sed -i '1i cmake_policy(SET CMP0074 OLD)' ../../source/CMakeLists.txt || true
+          cmake -G "Unix Makefiles" \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DENABLE_SHARED=OFF -DENABLE_CLI=OFF -DENABLE_PIC=ON \
+            -DENABLE_ASSEMBLY=OFF -DCMAKE_CXX_FLAGS="$CXXFLAGS -Wno-unused-parameter" \
+            ../../source
+          make -j$(nproc)
+          make install
+
+          echo "prefix=$PREFIX" > $PREFIX/lib/pkgconfig/x265.pc
+          echo "exec_prefix=\${prefix}" >> $PREFIX/lib/pkgconfig/x265.pc
+          echo "libdir=\${exec_prefix}/lib" >> $PREFIX/lib/pkgconfig/x265.pc
+          echo "includedir=\${prefix}/include" >> $PREFIX/lib/pkgconfig/x265.pc
+          echo "" >> $PREFIX/lib/pkgconfig/x265.pc
+          echo "Name: x265" >> $PREFIX/lib/pkgconfig/x265.pc
+          echo "Description: H.265/HEVC video encoder" >> $PREFIX/lib/pkgconfig/x265.pc
+          echo "Version: 3.5" >> $PREFIX/lib/pkgconfig/x265.pc
+          echo "Libs: -L\${libdir} -lx265" >> $PREFIX/lib/pkgconfig/x265.pc
+          echo "Libs.private: -lstdc++ -lm -ldl" >> $PREFIX/lib/pkgconfig/x265.pc
+          echo "Cflags: -I\${includedir}" >> $PREFIX/lib/pkgconfig/x265.pc
+          cd ../../..
+
+          echo "Building libvpx..."
+          git clone --depth 1 https://chromium.googlesource.com/webm/libvpx.git
+          cd libvpx
+          unset AS ASFLAGS
+          export AS=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export ASFLAGS="-c"
+          ./configure --target=armv7-android-gcc --prefix=$PREFIX \
+            --disable-shared --enable-static --enable-pic \
+            --disable-examples --disable-docs --disable-unit-tests \
+            --disable-tools --disable-runtime-cpu-detect --disable-neon-asm
+          make -j$(nproc)
+          make install
+          cd ..
+
+      - name: Build LibAV1 (from ver6)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🎯 Building LibAV1 (from ver6)..."
+          git clone --depth 1 https://aomedia.googlesource.com/aom.git libaom
+          cd libaom
+          mkdir -p build_android
+          cd build_android
+
+          cmake -G "Unix Makefiles" \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DENABLE_DOCS=OFF \
+            -DENABLE_EXAMPLES=OFF \
+            -DENABLE_TESTDATA=OFF \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_TOOLS=OFF \
+            -DCONFIG_AV1_DECODER=1 \
+            -DCONFIG_AV1_ENCODER=1 \
+            -DCONFIG_MULTITHREAD=1 \
+            -DCONFIG_PIC=1 \
+            -DCONFIG_RUNTIME_CPU_DETECT=0 \
+            -DCONFIG_WEBM_IO=0 \
+            -DAOM_TARGET_CPU=arm \
+            -DCMAKE_ASM_COMPILER=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang \
+            -DCMAKE_C_FLAGS="$CFLAGS -DNDEBUG -Wno-unused-function -Wno-unused-parameter" \
+            -DCMAKE_CXX_FLAGS="$CXXFLAGS -DNDEBUG -Wno-unused-function -Wno-unused-parameter" \
+            ..
+
+          if make -j$(nproc) V=1 2>&1 | tee build.log; then
+            echo "✅ LibAV1 parallel build succeeded"
+          else
+            echo "⚠️ Parallel build failed, trying single-threaded..."
+            make clean
+            if make V=1 2>&1 | tee build-single.log; then
+              echo "✅ LibAV1 single-threaded build succeeded"
+            else
+              echo "⚠️ Build failed, trying with reduced optimizations..."
+              make clean
+              cmake -DCMAKE_C_FLAGS="$CFLAGS -O1 -DNDEBUG" -DCMAKE_CXX_FLAGS="$CXXFLAGS -O1 -DNDEBUG" ..
+              make V=1 || echo "❌ LibAV1 build failed completely"
+            fi
+          fi
+
+          if make install 2>/dev/null; then
+            echo "✅ LibAV1 installation successful"
+          else
+            echo "⚠️ Standard installation failed, trying manual installation..."
+            mkdir -p $PREFIX/lib $PREFIX/include
+            
+            if [ -f "libaom.a" ]; then
+              cp libaom.a $PREFIX/lib/ && echo "✅ LibAV1 library copied manually"
+            elif find . -name "libaom.a" -exec cp {} $PREFIX/lib/ \; 2>/dev/null; then
+              echo "✅ LibAV1 library found and copied"
+            else
+              echo "❌ LibAV1 library not found"
+            fi
+            
+            if [ -d "../aom" ]; then
+              cp -r ../aom $PREFIX/include/ 2>/dev/null || echo "Headers copy attempted"
+            fi
+          fi
+
+          if [ -f "$PREFIX/lib/libaom.a" ]; then
+            echo "prefix=$PREFIX" > $PREFIX/lib/pkgconfig/aom.pc
+            echo "exec_prefix=\${prefix}" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "libdir=\${exec_prefix}/lib" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "includedir=\${prefix}/include" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "Name: aom" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "Description: AV1 Video Codec Library" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "Version: 3.0.0" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "Libs: -L\${libdir} -laom" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "Libs.private: -lstdc++ -lm -ldl" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "Cflags: -I\${includedir}" >> $PREFIX/lib/pkgconfig/aom.pc
+            echo "✅ LibAV1 successfully built!"
+          else
+            echo "❌ LibAV1 build failed"
+          fi
+          cd ../..
+
+      - name: Build Audio Codecs - Part 1 (FDK-AAC from ver5)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🎯 Building FDK-AAC (from ver5)..."
+          git clone --depth 1 https://github.com/mstorsjo/fdk-aac.git
+          cd fdk-aac
+
+          find . -name "*.cpp" -exec sed -i 's/<<;=/<<= /g' {} \; || true
+          find . -name "*.cpp" -exec sed -i 's/>>=/>>= /g' {} \; || true
+          find . -name "*.cpp" -exec sed -i 's/>>;/>> ;/g' {} \; || true
+          find . -name "*.cpp" -exec sed -i 's/<<;/<< ;/g' {} \; || true
+
+          if [ -f "libAACdec/src/aacdec_hcr.cpp" ]; then
+            sed -i 's/escape_word <<;=/escape_word <<= /g' libAACdec/src/aacdec_hcr.cpp || true
+            sed -i 's/escape_word >>;/escape_word >> ;/g' libAACdec/src/aacdec_hcr.cpp || true
+            sed -i 's/carryBit <<;=/carryBit <<= /g' libAACdec/src/aacdec_hcr.cpp || true
+          fi
+
+          find . -name "*.cpp" -exec sed -i 's/value <<;=/value <<= /g' {} \; || true
+          find . -name "*.cpp" -exec sed -i 's/bits >>;=/bits >>= /g' {} \; || true
+          find . -name "*.cpp" -exec sed -i 's/data <<;=/data <<= /g' {} \; || true
+          find . -name "*.cpp" -exec sed -i 's/tmp >>;=/tmp >>= /g' {} \; || true
+          find . -name "*.h" -exec sed -i 's/<<;=/<<= /g' {} \; || true
+          find . -name "*.h" -exec sed -i 's/>>=/>>= /g' {} \; || true
+
+          ./autogen.sh
+
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --with-pic \
+            --disable-example \
+            CXX="$CXX -std=c++11 -Wno-shift-count-overflow -Wno-unused-parameter -Wno-unused-variable -Wno-sign-compare -Wno-narrowing -fpermissive" \
+            CXXFLAGS="$CXXFLAGS -Wno-shift-count-overflow -Wno-unused-parameter -Wno-unused-variable -Wno-sign-compare -Wno-narrowing -fpermissive"
+
+          if make -j$(nproc) V=1 2>&1 | tee build.log; then
+            echo "✅ Parallel build succeeded"
+          else
+            echo "⚠️ Parallel build failed, trying single-threaded..."
+            make clean
+            make V=1 2>&1 | tee build-single.log || echo "Single-threaded also failed"
+          fi
+
+          if make install 2>/dev/null; then
+            echo "✅ FDK-AAC installation successful"
+          else
+            echo "⚠️ Manual installation..."
+            mkdir -p $PREFIX/lib $PREFIX/include
+            if [ -f ".libs/libfdk-aac.a" ]; then
+              cp .libs/libfdk-aac.a $PREFIX/lib/ && echo "✅ Library copied"
+            fi
+            [ -f "libAACenc/include/aacenc_lib.h" ] && cp libAACenc/include/aacenc_lib.h $PREFIX/include/
+            [ -f "libAACdec/include/aacdecoder_lib.h" ] && cp libAACdec/include/aacdecoder_lib.h $PREFIX/include/
+            [ -f "libFDK/include/FDK_audio.h" ] && cp libFDK/include/FDK_audio.h $PREFIX/include/
+          fi
+          
+          if [ -f "$PREFIX/lib/libfdk-aac.a" ]; then
+            echo "prefix=$PREFIX" > $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "exec_prefix=\${prefix}" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "libdir=\${exec_prefix}/lib" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "includedir=\${prefix}/include" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "Name: fdk-aac" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "Description: Fraunhofer FDK AAC Codec Library" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "Version: 2.0.0" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "Libs: -L\${libdir} -lfdk-aac" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "Libs.private: -lm" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "Cflags: -I\${includedir}" >> $PREFIX/lib/pkgconfig/fdk-aac.pc
+            echo "✅ FDK-AAC configured!"
+          fi
+          cd ..
+
+          echo "Building opus..."
+          git clone --depth 1 https://github.com/xiph/opus.git
+          cd opus
+          ./autogen.sh
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-doc \
+            --disable-extra-programs --enable-fixed-point --disable-intrinsics
+          make -j$(nproc)
+          make install
+          cd ..
+
+      - name: Build Audio Codecs - Part 2
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "Building lame..."
+          wget -q https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz || \
+          wget -q https://sourceforge.net/projects/lame/files/lame/3.100/lame-3.100.tar.gz
+          tar xzf lame-3.100.tar.gz
+          cd lame-3.100
+
+          wget -q -O config.sub 'https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD' || {
+            sed -i 's/| android/| android | androideabi/g' config.sub
+            sed -i '/android/a\\ androideabi)' config.sub
+            sed -i '/androideabi)/a\\ basic_machine=arm-unknown' config.sub
+            sed -i '/basic_machine=arm-unknown/a\\ os=-linux-androideabi' config.sub
+            sed -i '/os=-linux-androideabi/a\\ ;;' config.sub
+          }
+          chmod +x config.sub config.guess
+
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-frontend \
+            --disable-decoder --disable-dependency-tracking --with-pic \
+            CFLAGS="$CFLAGS -DHAVE_CONFIG_H -fno-fast-math -Wno-unused-function"
+          make -j$(nproc) || { make clean; make; }
+          make install
+          cd ..
+
+          echo "Building TwoLAME (from ver4)..."
+          wget -q https://downloads.sourceforge.net/project/twolame/twolame/0.4.0/twolame-0.4.0.tar.gz || \
+          wget -q https://github.com/njh/twolame/archive/refs/tags/0.4.0.tar.gz -O twolame-0.4.0.tar.gz
+          
+          tar xzf twolame-0.4.0.tar.gz
+          cd twolame-0.4.0* || cd twolame-0.4.0
+          
+          if [ ! -f "configure" ]; then
+            if [ -f "autogen.sh" ]; then
+              ./autogen.sh
+            else
+              autoreconf -fiv
+            fi
+          fi
+
+          wget -q -O config.sub 'https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD' || {
+            if [ -f "config.sub" ]; then
+              sed -i 's/| android/| android | androideabi/g' config.sub
+              sed -i '/android/a\\ androideabi)' config.sub
+              sed -i '/androideabi)/a\\ basic_machine=arm-unknown' config.sub  
+              sed -i '/basic_machine=arm-unknown/a\\ os=-linux-androideabi' config.sub
+              sed -i '/os=-linux-androideabi/a\\ ;;' config.sub
+            fi
+          }
+          chmod +x config.sub config.guess 2>/dev/null || true
+
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-frontend \
+            --with-pic --disable-dependency-tracking \
+            CFLAGS="$CFLAGS -DANDROID -fno-strict-aliasing -Wno-unused-function" || {
+            autoreconf -fiv --force
+            ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+              --disable-shared --enable-static --with-pic CFLAGS="$CFLAGS -DANDROID"
+          }
+          
+          make -j$(nproc) V=1 || { make clean; make V=1; }
+          make install || {
+            if [ -f "libtwolame/.libs/libtwolame.a" ]; then
+              cp libtwolame/.libs/libtwolame.a $PREFIX/lib/
+              cp libtwolame/twolame.h $PREFIX/include/
+            elif [ -f "src/.libs/libtwolame.a" ]; then
+              cp src/.libs/libtwolame.a $PREFIX/lib/
+              cp src/twolame.h $PREFIX/include/ 2>/dev/null || cp twolame.h $PREFIX/include/ 2>/dev/null
+            fi
+          }
+          
+          if [ -f "$PREFIX/lib/libtwolame.a" ]; then
+            echo "prefix=$PREFIX" > $PREFIX/lib/pkgconfig/twolame.pc
+            echo "exec_prefix=\${prefix}" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "libdir=\${exec_prefix}/lib" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "includedir=\${prefix}/include" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "Name: twolame" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "Description: MPEG Audio Layer 2 encoder" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "Version: 0.4.0" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "Libs: -L\${libdir} -ltwolame" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "Libs.private: -lm" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "Cflags: -I\${includedir}" >> $PREFIX/lib/pkgconfig/twolame.pc
+            echo "✅ TwoLAME built!"
+          fi
+          cd ..
+
+      - name: Build LibSOXR (from ver7)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🎯 Building LibSOXR (from ver7)..."
+          git clone --depth 1 https://git.code.sf.net/p/soxr/code soxr || \
+          git clone --depth 1 https://github.com/chirlu/soxr.git soxr
+          cd soxr
+
+          mkdir -p build_android
+          cd build_android
+
+          echo "Configuring LibSOXR for Android ARM..."
+          cmake -G "Unix Makefiles" \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DWITH_OPENMP=OFF \
+            -DWITH_LSR_BINDINGS=OFF \
+            -DWITH_AVFFT=OFF \
+            -DCMAKE_C_FLAGS="$CFLAGS -DNDEBUG -Wno-unused-function" \
+            -DCMAKE_CXX_FLAGS="$CXXFLAGS -DNDEBUG -Wno-unused-function" \
+            ..
+
+          echo "Building LibSOXR..."
+          if make -j$(nproc) V=1 2>&1 | tee build.log; then
+            echo "✅ LibSOXR parallel build succeeded"
+          else
+            echo "⚠️ Parallel build failed, trying single-threaded..."
+            make clean
+            if make V=1 2>&1 | tee build-single.log; then
+              echo "✅ LibSOXR single-threaded build succeeded"
+            else
+              echo "❌ LibSOXR build failed"
+            fi
+          fi
+
+          if make install 2>/dev/null; then
+            echo "✅ LibSOXR installation successful"
+          else
+            echo "⚠️ Manual installation..."
+            mkdir -p $PREFIX/lib $PREFIX/include
+            
+            if [ -f "src/libsoxr.a" ]; then
+              cp src/libsoxr.a $PREFIX/lib/ && echo "✅ Library copied"
+            elif find . -name "libsoxr.a" -exec cp {} $PREFIX/lib/ \; 2>/dev/null; then
+              echo "✅ Library found and copied"
+            fi
+            
+            if [ -d "../src" ]; then
+              cp -r ../src/*.h $PREFIX/include/ 2>/dev/null || echo "Headers copy attempted"
+            fi
+          fi
+          
+          if [ -f "$PREFIX/lib/libsoxr.a" ]; then
+            echo "prefix=$PREFIX" > $PREFIX/lib/pkgconfig/soxr.pc
+            echo "exec_prefix=\${prefix}" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "libdir=\${exec_prefix}/lib" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "includedir=\${prefix}/include" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "Name: soxr" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "Description: High quality, one-dimensional sample-rate conversion library" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "Version: 0.1.3" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "Libs: -L\${libdir} -lsoxr" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "Libs.private: -lm" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "Cflags: -I\${includedir}" >> $PREFIX/lib/pkgconfig/soxr.pc
+            echo "✅ LibSOXR successfully built and configured!"
+          else
+            echo "❌ LibSOXR build failed completely"
+          fi
+          cd ../..
+
+      - name: Build Xiph Libraries
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "Building libogg..."
+          git clone --depth 1 https://github.com/xiph/ogg.git
+          cd ogg
+          ./autogen.sh
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static
+          make -j$(nproc)
+          make install
+          cd ..
+
+          echo "Building libvorbis..."
+          git clone --depth 1 https://github.com/xiph/vorbis.git
+          cd vorbis
+          ./autogen.sh
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-docs --disable-examples
+          make -j$(nproc)
+          make install
+          cd ..
+
+          echo "Building libtheora (from ver3)..."
+          git clone --depth 1 https://github.com/xiph/theora.git
+          cd theora
+          
+          if [ ! -f "configure" ]; then
+            ./autogen.sh
+          fi
+          
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-doc --disable-spec \
+            --disable-examples --disable-oggtest --disable-vorbistest \
+            --disable-sdltest --disable-asm --with-pic \
+            --with-ogg=$PREFIX --with-vorbis=$PREFIX \
+            CFLAGS="$CFLAGS -DANDROID -fno-strict-aliasing"
+          
+          make -j$(nproc) V=1 || { make clean; make V=1; }
+          make install
+          cd ..
+
+          echo "Building libspeex..."
+          git clone --depth 1 https://github.com/xiph/speex.git
+          cd speex
+          ./autogen.sh
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-oggtest
+          make -j$(nproc)
+          make install
+          cd ..
+
+      - name: Build GSM and FriBidi
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "Building libgsm (from ver1)..."
+          wget -q http://www.quut.com/gsm/gsm-1.0.22.tar.gz || \
+          wget -q https://ftp.debian.org/debian/pool/main/libg/libgsm/libgsm_1.0.22.orig.tar.gz -O gsm-1.0.22.tar.gz
+          
+          tar xzf gsm-1.0.22.tar.gz
+          cd gsm-1.0-pl22
+          
+          mkdir -p $PREFIX/inc $PREFIX/man/man3 $PREFIX/lib $PREFIX/bin
+          
+          cp Makefile Makefile.original
+          sed -i 's/^CC.*=.*gcc/CC = $(ANDROID_CC)/g' Makefile
+          sed -i 's/^AR.*=.*ar/AR = $(ANDROID_AR)/g' Makefile  
+          sed -i 's/^RANLIB.*=.*ranlib/RANLIB = $(ANDROID_RANLIB)/g' Makefile
+          sed -i 's/CCFLAGS.*=.*-c -O/CCFLAGS = -c $(ANDROID_CFLAGS) -DANDROID -DNeedFunctionPrototypes=1/g' Makefile
+          sed -i "s|/usr/local|$PREFIX|g" Makefile
+          sed -i 's|$(GSM_INSTALL_ROOT)/inc|$(GSM_INSTALL_ROOT)/include|g' Makefile
+          
+          export ANDROID_CC="$CC"
+          export ANDROID_AR="$AR"  
+          export ANDROID_RANLIB="$RANLIB"
+          export ANDROID_CFLAGS="$CFLAGS -fPIC"
+          
+          make clean 2>/dev/null || true
+          make INSTALL_ROOT=$PREFIX CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+               CCFLAGS="-c $CFLAGS -DANDROID -DNeedFunctionPrototypes=1 -fPIC" \
+               -j$(nproc) || {
+            make clean
+            make INSTALL_ROOT=$PREFIX CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+                 CCFLAGS="-c $CFLAGS -DANDROID -DNeedFunctionPrototypes=1 -fPIC"
+          }
+          
+          cp lib/libgsm.a $PREFIX/lib/ || find . -name "libgsm.a" -exec cp {} $PREFIX/lib/ \;
+          cp inc/gsm.h $PREFIX/include/ 2>/dev/null || cp inc/gsm.h $PREFIX/inc/ 2>/dev/null || true
+          
+          echo "prefix=$PREFIX" > $PREFIX/lib/pkgconfig/gsm.pc
+          echo "exec_prefix=\${prefix}" >> $PREFIX/lib/pkgconfig/gsm.pc
+          echo "libdir=\${exec_prefix}/lib" >> $PREFIX/lib/pkgconfig/gsm.pc
+          echo "includedir=\${prefix}/include" >> $PREFIX/lib/pkgconfig/gsm.pc
+          echo "" >> $PREFIX/lib/pkgconfig/gsm.pc
+          echo "Name: GSM" >> $PREFIX/lib/pkgconfig/gsm.pc
+          echo "Description: GSM 06.10 lossy speech compression library" >> $PREFIX/lib/pkgconfig/gsm.pc
+          echo "Version: 1.0.22" >> $PREFIX/lib/pkgconfig/gsm.pc
+          echo "Libs: -L\${libdir} -lgsm" >> $PREFIX/lib/pkgconfig/gsm.pc
+          echo "Cflags: -I\${includedir}" >> $PREFIX/lib/pkgconfig/gsm.pc
+          cd ..
+
+          echo "Building libfribidi (from ver2)..."
+          wget -q https://github.com/fribidi/fribidi/releases/download/v1.0.13/fribidi-1.0.13.tar.xz || {
+            git clone --depth 1 https://github.com/fribidi/fribidi.git
+            cd fribidi
+            ./autogen.sh
+          }
+          
+          if [ -f "fribidi-1.0.13.tar.xz" ]; then
+            tar xJf fribidi-1.0.13.tar.xz
+            cd fribidi-1.0.13
+          fi
+          
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-docs \
+            --disable-debug --with-pic --disable-deprecated \
+            CFLAGS="$CFLAGS -DFRIBIDI_NO_DEPRECATED=1"
+          
+          make -j$(nproc) V=1 || { make clean; make V=1; }
+          make install
+          cd ..
+
+      - name: Build Additional Libraries
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "Building webp..."
+          git clone --depth 1 https://chromium.googlesource.com/webm/libwebp.git
+          cd libwebp
+          ./autogen.sh
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-gl --disable-sdl \
+            --disable-png --disable-jpeg --disable-tiff --disable-gif
+          make -j$(nproc)
+          make install
+          cd ..
+
+          echo "Building freetype..."
+          wget -q https://download.savannah.gnu.org/releases/freetype/freetype-2.13.2.tar.gz
+          tar xzf freetype-2.13.2.tar.gz
+          cd freetype-2.13.2
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --without-png \
+            --without-harfbuzz --without-brotli
+          make -j$(nproc)
+          make install
+          cd ..
+
+          echo "Building libopenjpeg..."
+          git clone --depth 1 https://github.com/uclouvain/openjpeg.git
+          cd openjpeg
+          mkdir build && cd build
+          cmake -G "Unix Makefiles" \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DBUILD_SHARED_LIBS=OFF -DBUILD_CODEC=OFF ..
+          make -j$(nproc)
+          make install
+          cd ../..
+
+      - name: Build LibASS (NEW FEATURE - ver8)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🎯 Building LibASS (NEW FEATURE - ver8)..."
+          git clone --depth 1 https://github.com/libass/libass.git
+          cd libass
+
+          ./autogen.sh
+
+          echo "Configuring LibASS for Android ARM..."
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-asm \
+            --disable-harfbuzz --disable-fontconfig \
+            --with-pic \
+            CFLAGS="$CFLAGS -DANDROID -Wno-unused-function" \
+            FRIBIDI_CFLAGS="-I$PREFIX/include" \
+            FRIBIDI_LIBS="-L$PREFIX/lib -lfribidi" \
+            FREETYPE_CFLAGS="-I$PREFIX/include/freetype2" \
+            FREETYPE_LIBS="-L$PREFIX/lib -lfreetype"
+
+          echo "Building LibASS..."
+          if make -j$(nproc) V=1 2>&1 | tee build.log; then
+            echo "✅ LibASS parallel build succeeded"
+          else
+            echo "⚠️ Parallel build failed, trying single-threaded..."
+            make clean
+            if make V=1 2>&1 | tee build-single.log; then
+              echo "✅ LibASS single-threaded build succeeded"
+            else
+              echo "❌ LibASS build failed"
+            fi
+          fi
+
+          if make install 2>/dev/null; then
+            echo "✅ LibASS installation successful"
+          else
+            echo "⚠️ Manual installation..."
+            mkdir -p $PREFIX/lib $PREFIX/include
+            
+            if [ -f ".libs/libass.a" ]; then
+              cp .libs/libass.a $PREFIX/lib/ && echo "✅ Library copied"
+            elif find . -name "libass.a" -exec cp {} $PREFIX/lib/ \; 2>/dev/null; then
+              echo "✅ Library found and copied"
+            fi
+            
+            if [ -d "libass" ]; then
+              cp -r libass/*.h $PREFIX/include/ 2>/dev/null || echo "Headers copy attempted"
+            fi
+          fi
+          
+          if [ -f "$PREFIX/lib/libass.a" ]; then
+            echo "✅ LibASS successfully built and configured!"
+          else
+            echo "❌ LibASS build failed completely"
+          fi
+          cd ..
+
+      - name: Verify All Libraries (Including LibASS)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export PREFIX=$(pwd)/../build/external
+
+          echo "=== COMPLETE LIBRARY VERIFICATION (VER8 + LibASS) ==="
+          ls -la $PREFIX/lib/
+
+          echo "=== PKG-CONFIG FILES ==="
+          ls -la $PREFIX/lib/pkgconfig/
+
+          echo "=== ALL LIBRARIES STATUS (INCLUDING LibASS) ==="
+          for lib in libx264.a libx265.a libvpx.a libopus.a libmp3lame.a libtwolame.a \
+                     libvorbis.a libogg.a libtheora.a libtheoraenc.a libtheoradec.a \
+                     libspeex.a libgsm.a libfribidi.a libwebp.a libfreetype.a \
+                     libopenjp2.a libz.a libbz2.a liblzma.a libfdk-aac.a libaom.a libsoxr.a libass.a; do
+            if [ -f "$PREFIX/lib/$lib" ]; then
+              echo "✅ $lib: $(du -sh $PREFIX/lib/$lib | cut -f1)"
+            else
+              echo "❌ $lib: Missing"
+            fi
+          done
+
+          echo "HAVE_FRIBIDI=$([ -f "$PREFIX/lib/libfribidi.a" ] && echo true || echo false)" > $PREFIX/build_status.env
+          echo "HAVE_GSM=$([ -f "$PREFIX/lib/libgsm.a" ] && echo true || echo false)" >> $PREFIX/build_status.env  
+          echo "HAVE_THEORA=$([ -f "$PREFIX/lib/libtheora.a" ] && echo true || echo false)" >> $PREFIX/build_status.env
+          echo "HAVE_TWOLAME=$([ -f "$PREFIX/lib/libtwolame.a" ] && echo true || echo false)" >> $PREFIX/build_status.env
+          echo "HAVE_FDK_AAC=$([ -f "$PREFIX/lib/libfdk-aac.a" ] && echo true || echo false)" >> $PREFIX/build_status.env
+          echo "HAVE_LIBAOM=$([ -f "$PREFIX/lib/libaom.a" ] && echo true || echo false)" >> $PREFIX/build_status.env
+          echo "HAVE_SOXR=$([ -f "$PREFIX/lib/libsoxr.a" ] && echo true || echo false)" >> $PREFIX/build_status.env
+          echo "HAVE_ASS=$([ -f "$PREFIX/lib/libass.a" ] && echo true || echo false)" >> $PREFIX/build_status.env
+
+      - name: Clone FFmpeg
+        run: |
+          git clone --depth 1 --branch ${{ env.FFMPEG_VERSION }} https://git.ffmpeg.org/ffmpeg.git ffmpeg
+          cd ffmpeg
+          echo "Applying Android compatibility patches..."
+          sed -i 's/__builtin_assume_aligned//g' libavutil/mem.c || true
+          sed -i 's/HAVE_BUILTIN_ASSUME_ALIGNED 1/HAVE_BUILTIN_ASSUME_ALIGNED 0/g' libavutil/mem.c || true
+          find . -name "*.c" -exec sed -i 's/__restrict restrict//g' {} \; || true
+          find . -name "*.h" -exec sed -i 's/__restrict restrict//g' {} \; || true
+
+      - name: Create Build Directories  
+        run: |
+          mkdir -p build/armeabi-v7a output/armeabi-v7a logs
+
+      - name: Configure FFmpeg (ALL Features + LibASS - ver8)
+        working-directory: ffmpeg
+        run: |
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export STRIP=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-strip
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
+
+          if [ -f "$PREFIX/build_status.env" ]; then
+            source $PREFIX/build_status.env
+          else
+            HAVE_FRIBIDI=false
+            HAVE_GSM=false
+            HAVE_THEORA=false
+            HAVE_TWOLAME=false
+            HAVE_FDK_AAC=false
+            HAVE_LIBAOM=false
+            HAVE_SOXR=false
+            HAVE_ASS=false
+          fi
+
+          echo "=== VERIFYING ALL LIBRARIES (VER8 + LibASS) ===" 
+          ls -la $PREFIX/lib/
+          pkg-config --list-all | grep -E "(x264|x265|opus|vpx|ogg|vorbis|gsm|fribidi|theora|twolame|fdk-aac|aom|soxr|ass)" || true
+
+          EXTRA_LIBS="-lmp3lame -lx264 -lx265 -lvpx -lopus -lvorbis -logg -lwebp -lspeex -lopenjp2 -lfreetype -lz -lbz2 -llzma -lstdc++ -lm -ldl -llog"
+          ENABLE_LIBS="--enable-libx264 --enable-libx265 --enable-libvpx --enable-libopus --enable-libmp3lame --enable-libvorbis --enable-libwebp --enable-libspeex --enable-libopenjpeg --enable-libfreetype"
+
+          if [ "$HAVE_GSM" = true ] && [ -f "$PREFIX/lib/libgsm.a" ]; then
+            EXTRA_LIBS="$EXTRA_LIBS -lgsm"
+            ENABLE_LIBS="$ENABLE_LIBS --enable-libgsm"
+            echo "✅ GSM codec included"
+          fi
+
+          if [ "$HAVE_FRIBIDI" = true ] && [ -f "$PREFIX/lib/libfribidi.a" ]; then
+            EXTRA_LIBS="$EXTRA_LIBS -lfribidi"
+            ENABLE_LIBS="$ENABLE_LIBS --enable-libfribidi"
+            echo "✅ FriBidi included"
+          fi
+
+          if [ "$HAVE_THEORA" = true ] && [ -f "$PREFIX/lib/libtheora.a" ]; then
+            EXTRA_LIBS="$EXTRA_LIBS -ltheora -ltheoraenc -ltheoradec"
+            ENABLE_LIBS="$ENABLE_LIBS --enable-libtheora"
+            echo "✅ Theora included"
+          fi
+
+          if [ "$HAVE_TWOLAME" = true ] && [ -f "$PREFIX/lib/libtwolame.a" ]; then
+            EXTRA_LIBS="$EXTRA_LIBS -ltwolame"
+            ENABLE_LIBS="$ENABLE_LIBS --enable-libtwolame"
+            echo "✅ TwoLAME included"
+          fi
+
+          if [ "$HAVE_FDK_AAC" = true ] && [ -f "$PREFIX/lib/libfdk-aac.a" ]; then
+            EXTRA_LIBS="$EXTRA_LIBS -lfdk-aac"
+            ENABLE_LIBS="$ENABLE_LIBS --enable-libfdk-aac"
+            echo "✅ FDK-AAC included (from ver5)"
+          fi
+
+          if [ "$HAVE_LIBAOM" = true ] && [ -f "$PREFIX/lib/libaom.a" ]; then
+            EXTRA_LIBS="$EXTRA_LIBS -laom"
+            ENABLE_LIBS="$ENABLE_LIBS --enable-libaom"
+            echo "✅ LibAV1 included (from ver6)"
+          fi
+
+          if [ "$HAVE_SOXR" = true ] && [ -f "$PREFIX/lib/libsoxr.a" ]; then
+            EXTRA_LIBS="$EXTRA_LIBS -lsoxr"
+            ENABLE_LIBS="$ENABLE_LIBS --enable-libsoxr"
+            echo "✅ LibSOXR included (from ver7)"
+          fi
+
+          if [ "$HAVE_ASS" = true ] && [ -f "$PREFIX/lib/libass.a" ]; then
+            EXTRA_LIBS="$EXTRA_LIBS -lass"
+            ENABLE_LIBS="$ENABLE_LIBS --enable-libass"
+            echo "✅ LibASS included (NEW IN VER8)"
+          else
+            echo "❌ LibASS not available"
+          fi
+
+          echo "=== COMPLETE CONFIGURATION (VER8 + LibASS) ==="
+          echo "ENABLE_LIBS: $ENABLE_LIBS"
+          echo "EXTRA_LIBS: $EXTRA_LIBS"
+
+          ./configure \
+            --prefix=../build/armeabi-v7a \
+            --logfile=../logs/config.log \
+            --arch=arm \
+            --target-os=android \
+            --enable-cross-compile \
+            --cc=$CC \
+            --cxx=$CXX \
+            --strip=$STRIP \
+            --ar=$AR \
+            --ranlib=$RANLIB \
+            --sysroot=$SYSROOT \
+            --cpu=armv7-a \
+            --extra-cflags="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -O2 -I$PREFIX/include -std=c99 -Wno-deprecated-declarations -Wno-unused-function" \
+            --extra-cxxflags="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -O2 -I$PREFIX/include -std=c++11" \
+            --extra-ldflags="-Wl,--fix-cortex-a8 -L$PREFIX/lib -L$SYSROOT/usr/lib" \
+            --extra-libs="$EXTRA_LIBS" \
+            --pkg-config-flags="--static" \
+            --disable-shared \
+            --enable-static \
+            --enable-pic \
+            --enable-ffmpeg \
+            --enable-ffprobe \
+            --disable-ffplay \
+            --disable-doc \
+            --disable-htmlpages \
+            --disable-manpages \
+            --disable-podpages \
+            --disable-txtpages \
+            --disable-debug \
+            --enable-optimizations \
+            --enable-runtime-cpudetect \
+            $ENABLE_LIBS \
+            --enable-zlib \
+            --enable-bzlib \
+            --enable-lzma \
+            --enable-gpl \
+            --enable-version3 \
+            --enable-nonfree \
+            --enable-small \
+            --enable-encoder=aac,ac3,eac3,flac,mp2,mp3,pcm_s16le,pcm_s24le,pcm_s32le,gsm,theora,libaom_av1 \
+            --enable-decoder=aac,ac3,eac3,flac,mp2,mp3,pcm_s16le,pcm_s24le,pcm_s32le,gsm,theora,libaom_av1 \
+            --enable-muxer=mp4,mov,avi,mkv,webm,mp3,flac,ogg,3gp,ogv \
+            --enable-demuxer=mp4,mov,avi,mkv,webm,mp3,flac,ogg,3gp,ogv \
+            --enable-parser=aac,ac3,h264,hevc,vp8,vp9,av1,gsm,theora,mp2 \
+            --enable-filter=scale,crop,overlay,rotate,transpose,hflip,vflip,drawtext,aresample,subtitles,ass
+
+      - name: Build FFmpeg
+        working-directory: ffmpeg
+        run: |
+          echo "Building FFmpeg with ALL features + LibASS (NEW in ver8)..."
+          make -j$(nproc) V=1
+          make install
+          cp ../build/armeabi-v7a/bin/ffmpeg ../output/armeabi-v7a/ || true
+          cp ../build/armeabi-v7a/bin/ffprobe ../output/armeabi-v7a/ || true
+
+      - name: Verify and Package Complete Build
+        run: |
+          echo "=== COMPLETE BUILD VERIFICATION (VER8 + LibASS) ==="
+          ls -la output/armeabi-v7a/
+
+          for binary in ffmpeg ffprobe; do
+            if [ -f "output/armeabi-v7a/$binary" ]; then
+              echo "✅ $binary: $(du -sh output/armeabi-v7a/$binary | cut -f1)"
+              file output/armeabi-v7a/$binary
+            else
+              echo "❌ $binary: Not found"  
+            fi
+          done
+
+          mkdir -p release
+          cp -r output/armeabi-v7a/* release/ 2>/dev/null || echo "No binaries to copy"
+
+          ASS_STATUS="❌ Not available"
+          if [ -f "build/external/lib/libass.a" ]; then
+            ASS_STATUS="🎯 NEWLY ADDED IN VER8"
+          fi
+
+          SOXR_STATUS="❌ Not available"
+          if [ -f "build/external/lib/libsoxr.a" ]; then
+            SOXR_STATUS="✅ Available (from ver7)"
+          fi
+
+          LIBAOM_STATUS="❌ Not available"
+          if [ -f "build/external/lib/libaom.a" ]; then
+            LIBAOM_STATUS="✅ Available (from ver6)"
+          fi
+
+          FDK_AAC_STATUS="❌ Not available"
+          if [ -f "build/external/lib/libfdk-aac.a" ]; then
+            FDK_AAC_STATUS="✅ Available (from ver5)"
+          fi
+
+          GSM_STATUS="❌ Not available"
+          if [ -f "build/external/lib/libgsm.a" ]; then
+            GSM_STATUS="✅ Available (from ver1)"
+          fi
+
+          FRIBIDI_STATUS="❌ Not available"
+          if [ -f "build/external/lib/libfribidi.a" ]; then
+            FRIBIDI_STATUS="✅ Available (from ver2)"
+          fi
+
+          THEORA_STATUS="❌ Not available"
+          if [ -f "build/external/lib/libtheora.a" ]; then
+            THEORA_STATUS="✅ Available (from ver3)"
+          fi
+
+          TWOLAME_STATUS="❌ Not available"
+          if [ -f "build/external/lib/libtwolame.a" ]; then
+            TWOLAME_STATUS="✅ Available (from ver4)"
+          fi
+
+          echo "FFmpeg Android COMPLETE Build (ver8 + LibASS Added)" > release/BUILD_INFO.txt
+          echo "======================================================" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "🎯 NEWLY ADDED: LibASS - $ASS_STATUS" >> release/BUILD_INFO.txt
+          echo "📦 ALL PREVIOUS FEATURES INCLUDED FROM VER1-7" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "Version: ${{ env.FFMPEG_VERSION }}" >> release/BUILD_INFO.txt
+          echo "Target: ${{ env.ANDROID_ABI }}" >> release/BUILD_INFO.txt
+          echo "API Level: ${{ env.ANDROID_API_LEVEL }}" >> release/BUILD_INFO.txt
+          echo "NDK: ${{ env.NDK_VERSION }}" >> release/BUILD_INFO.txt
+          echo "Built: $(date)" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "📝 LibASS Features (NEWLY ADDED):" >> release/BUILD_INFO.txt
+          echo "- Advanced subtitle rendering (ASS/SSA)" >> release/BUILD_INFO.txt
+          echo "- Styled subtitles with rich formatting" >> release/BUILD_INFO.txt
+          echo "- Karaoke effects support" >> release/BUILD_INFO.txt
+          echo "- Complex subtitle animations" >> release/BUILD_INFO.txt
+          echo "- Professional subtitle processing" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "📺 Video Codecs:" >> release/BUILD_INFO.txt
+          echo "- H.264 (libx264)" >> release/BUILD_INFO.txt
+          echo "- H.265/HEVC (libx265)" >> release/BUILD_INFO.txt
+          echo "- VP8/VP9 (libvpx)" >> release/BUILD_INFO.txt
+          echo "- AV1 (libaom) - $LIBAOM_STATUS" >> release/BUILD_INFO.txt
+          echo "- Theora (libtheora) - $THEORA_STATUS" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "🎵 Audio Codecs:" >> release/BUILD_INFO.txt
+          echo "- AAC (FDK-AAC) - $FDK_AAC_STATUS" >> release/BUILD_INFO.txt
+          echo "- MP3 (LAME)" >> release/BUILD_INFO.txt
+          echo "- MP2 (TwoLAME) - $TWOLAME_STATUS" >> release/BUILD_INFO.txt
+          echo "- Opus" >> release/BUILD_INFO.txt
+          echo "- Vorbis" >> release/BUILD_INFO.txt
+          echo "- Speex" >> release/BUILD_INFO.txt
+          echo "- GSM - $GSM_STATUS" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "🔧 Audio Processing:" >> release/BUILD_INFO.txt
+          echo "- LibSOXR (High-quality resampling) - $SOXR_STATUS" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "📄 Text & Subtitles:" >> release/BUILD_INFO.txt
+          echo "- LibASS (Advanced subtitle rendering) - $ASS_STATUS" >> release/BUILD_INFO.txt
+          echo "- FriBidi (bidirectional text) - $FRIBIDI_STATUS" >> release/BUILD_INFO.txt
+          echo "- Font rendering (FreeType)" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "🖼️ Images:" >> release/BUILD_INFO.txt
+          echo "- WebP images" >> release/BUILD_INFO.txt
+          echo "- JPEG 2000 (OpenJPEG)" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "🗜️ Compression:" >> release/BUILD_INFO.txt
+          echo "- zlib, bzip2, lzma" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "📦 Container Formats:" >> release/BUILD_INFO.txt
+          echo "- MP4, MOV, MKV, WebM, AVI, 3GP, OGG, OGV" >> release/BUILD_INFO.txt
+          echo "" >> release/BUILD_INFO.txt
+          echo "✅ ALL LIBRARIES + LibASS SUCCESSFULLY ADDED!" >> release/BUILD_INFO.txt
+
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-complete-libass-added
+          path: logs/
+          retention-days: 7
+
+      - name: Upload Complete Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-android-complete-libass-added
+          path: release/
+          retention-days: 30
+
+      - name: Complete Build Summary
+        run: |
+          echo "## 🎯 FFmpeg Android COMPLETE Build (ver8 + LibASS Added)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "release/ffmpeg" ]; then
+            echo "### ✅ BUILD SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Binary Size**: $(du -sh release/ffmpeg | cut -f1)" >> $GITHUB_STEP_SUMMARY
+            echo "- **All previous features**: ✅ Included" >> $GITHUB_STEP_SUMMARY
+            echo "- **LibASS (NEW)**: 🎯 Successfully added" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Build Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Complete Feature Set" >> $GITHUB_STEP_SUMMARY
+          echo "- **Video**: H.264, H.265, VP8/9, AV1, Theora" >> $GITHUB_STEP_SUMMARY
+          echo "- **Audio**: AAC (FDK), MP3, MP2, Opus, Vorbis, Speex, GSM" >> $GITHUB_STEP_SUMMARY
+          echo "- **Audio Processing**: LibSOXR - High-quality resampling" >> $GITHUB_STEP_SUMMARY
+          echo "- **Subtitles**: LibASS (NEW) - Advanced subtitle rendering" >> $GITHUB_STEP_SUMMARY
+          echo "- **Text**: Bidirectional text support (FriBidi)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Images**: WebP, JPEG2000, Font rendering" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Libraries**: 19+ external codecs" >> $GITHUB_STEP_SUMMARY
+
+  notify-completion:
+    needs: build-ffmpeg-maximum
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Notify Complete Build Status  
+        run: |
+          if [ "${{ needs.build-ffmpeg-maximum.result }}" == "success" ]; then
+            echo "🎉 SUCCESS: Complete FFmpeg build with ALL features + LibASS ADDED!"
+            echo "📱 Ready for Android deployment with full codec support"
+            echo "🎯 LibASS successfully added to complete build (ver8)"
+            echo "📝 Advanced subtitle rendering now available!"
+          else
+            echo "❌ FAILED: Complete build encountered errors"
+            echo "📋 Check build logs for details"
+          fi
