@@ -1,7 +1,7 @@
 # 📚 FFmpeg Android ARM32 - Error Knowledge Base
 
 > **Cập nhật:** Tự động bởi AI (Gemini 2.0 Flash)
-> **Tổng số lỗi:** 3
+> **Tổng số lỗi:** 4
 
 ---
 
@@ -80,6 +80,25 @@ Cần phân tích thủ công - Gemini API không khả dụng
 **🛠️ Fix:** Không cần fix
 
 **📝 Loại:** `NONE`
+
+---
+
+
+### 🔴 ERROR-001: Cross-compilation tools not prefixed with host triplet
+
+**📅** 2025-10-16 | **📦** Build FFmpeg Android ARM32 (Full Features + LibASS Added - ver8) [ver8] | **🔗** [Run #17](https://github.com/share-18001080/113/actions/runs/18557940283)
+
+**🎯 Thư viện:** `fdk-aac` | **🤖 Độ tin cậy:** 90%
+
+**⚠️ Triệu chứng:** configure warning, Potential build issues due to incorrect toolchain identification
+
+**🔍 Nguyên nhân gốc rễ:**  
+The configure script detected that the cross-compilation tools (like the compiler, linker, etc.) are not prefixed with the target host triplet (arm-linux-androideabi-). This usually indicates a misconfiguration in the build environment or an incomplete toolchain setup.
+
+**🛠️ Gợi ý fix:**  
+Ensure that the PATH environment variable is correctly set to point to the toolchain binaries with the proper prefix. Verify that the TARGET_HOST variable is correctly defined and used in the configure command. Double-check the NDK installation and configuration.
+
+**📝 Loại lỗi:** `CONFIGURE`
 
 ---
 
