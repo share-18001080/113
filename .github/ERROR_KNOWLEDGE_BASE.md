@@ -8,6 +8,7 @@
 ## 📋 Quick Reference
 
 | ID | Tên lỗi | Thư viện | Workflow | Ngày |
+| ERROR-001 | Meson build failed due to unknown options | libass | ver8 | [`Build_FFmpeg_Android_ARM32__Full_Features___LibASS_Added_-_ver8__run42_20251016-142946.md`](.github/error-summaries/Build_FFmpeg_Android_ARM32__Full_Features___LibASS_Added_-_ver8__run42_20251016-142946.md) | 2025-10-16 |
 | ERROR-NDK-BUILD | Potential Alignment Issues in CELT Decoder | libopus | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run37_20251016-141228.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run37_20251016-141228.txt) | 2025-10-16 |
 | ERROR-001 | Configuration Warnings | opus | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run36_20251016-140943.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run36_20251016-140943.txt) | 2025-10-16 |
 | ERROR-OBSOLETE-MACRO | Obsolete Macros Used | libopus | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt) | 2025-10-16 |
@@ -253,6 +254,24 @@ Provide a more complete log including the error message and exit code to diagnos
 **🛠️ Fix:** Review the type casting in celt_decoder.c and ensure proper alignment is maintained. Consider using appropriately aligned data structures or memory allocation techniques to avoid alignment issues.
 
 **📝** `COMPILE`
+
+---
+
+
+### 🔴 ERROR-001: Meson build failed due to unknown options
+
+**📅** 2025-10-16 | **🔗** [Run #42](https://github.com/share-18001080/113/actions/runs/18564581450)  
+**🎯** `libass` | **🏷️** `ver8` | **🤖** 95%
+
+**📄 Full Summary:** [`.github/error-summaries/Build_FFmpeg_Android_ARM32__Full_Features___LibASS_Added_-_ver8__run42_20251016-142946.md`](.github/error-summaries/Build_FFmpeg_Android_ARM32__Full_Features___LibASS_Added_-_ver8__run42_20251016-142946.md)
+
+**⚠️** Build fails during meson setup, Unknown options error
+
+**🔍** The meson build system does not recognize the 'harfbuzz' and 'libtool' options.
+
+**🛠️** Remove or correct the 'harfbuzz' and 'libtool' options from the meson setup command. Check meson documentation for valid options.
+
+**📝** `CONFIGURE`
 
 ---
 
