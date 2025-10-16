@@ -8,6 +8,7 @@
 ## 📋 Quick Reference
 
 | ID | Tên lỗi | Thư viện | Workflow | Ngày |
+| ERROR-001 | Configuration Warnings | opus | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run36_20251016-140943.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run36_20251016-140943.txt) | 2025-10-16 |
 | ERROR-OBSOLETE-MACRO | Obsolete Macros Used | libopus | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run35_20251016-140801.txt) | 2025-10-16 |
 | ERROR-999 | API error | unknown | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run34_20251016-135342.txt) | 2025-10-16 |
 | ERROR-001 | Không có lỗi rõ ràng trong excerpt log | libass | ver8 | [`Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run32_20251016-134007.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run32_20251016-134007.txt) | 2025-10-16 |
@@ -213,6 +214,24 @@ Provide a more complete log including the error message and exit code to diagnos
 **🔍 Nguyên nhân (Gemini analyzed FULL log):** The configure.ac file uses obsolete Autoconf macros like AC_MINGW32, AM_PROG_LIBTOOL, AC_PROG_CC_C99, AC_WARN, AC_TRY_COMPILE, and AC_HELP_STRING.
 
 **🛠️ Fix:** Update the configure.ac file to use the modern equivalents of the obsolete macros. Run autoupdate to update the macros.
+
+**📝** `CONFIGURE`
+
+---
+
+
+### 🔴 ERROR-001: Configuration Warnings
+
+**📅** 2025-10-16 | **🔗** [Run #36](https://github.com/share-18001080/113/actions/runs/18563923080)  
+**🎯** `opus` | **🏷️** `ver8` | **🤖** 90%
+
+**📄 FULL Log (2.7MB):** [`.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run36_20251016-140943.txt`](.github/workflow-logs/Build_FFmpeg_Android_ARM32_Full_Features_LibASS_Added_-_ver8__run36_20251016-140943.txt)
+
+**⚠️ Triệu chứng:** Obsolete macros, Warnings during configuration
+
+**🔍 Nguyên nhân (Gemini analyzed FULL log):** Obsolete macros used in configure.ac
+
+**🛠️ Fix:** Update configure.ac to use current macros by running autoupdate.
 
 **📝** `CONFIGURE`
 
