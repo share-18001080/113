@@ -1,0 +1,338 @@
+name: AI Knowledge Base (Full Log + Gemini Summary)
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  ai-analyze-error:
+    runs-on: ubuntu-latest
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      contains(github.event.workflow_run.name, 'ver') &&
+      !contains(github.event.workflow_run.name, 'AI Knowledge Base')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Download full log
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/logs" \
+            -o current-log.zip
+          
+          unzip -q current-log.zip -d current-log/
+          find current-log/ -name "*.txt" -exec cat {} \; > full-log.txt
+          
+          TOTAL=$(wc -l < full-log.txt)
+          SIZE=$(stat -c%s full-log.txt)
+          echo "📊 Full log: $TOTAL lines ($SIZE bytes)"
+          
+          # Extract error context for repo storage
+          EXIT_LINE=$(grep -n "exit code [1-9]" full-log.txt | head -n 1 | cut -d: -f1)
+          if [ -z "$EXIT_LINE" ]; then
+            EXIT_LINE=$(grep -n "##\[error\]" full-log.txt | head -n 1 | cut -d: -f1)
+          fi
+          
+          if [ -n "$EXIT_LINE" ]; then
+            START=$((EXIT_LINE - 3000))
+            END=$((EXIT_LINE + 100))
+            [ $START -lt 1 ] && START=1
+            [ $END -gt $TOTAL ] && END=$TOTAL
+            sed -n "${START},${END}p" full-log.txt > error-context.txt
+          else
+            tail -n 5000 full-log.txt > error-context.txt
+          fi
+
+      - name: Extract version
+        id: extract_ver
+        run: |
+          VERSION=$(echo "${{ github.event.workflow_run.name }}" | grep -oE 'ver[0-9]+' || echo "ver-unknown")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Prepare full log file for repo
+        id: prepare_log
+        run: |
+          mkdir -p .github/workflow-logs
+          
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          SAFE_NAME=$(echo "$WORKFLOW_NAME" | sed 's/[^a-zA-Z0-9-]/_/g' | sed 's/__*/_/g')
+          RUN_NUM="${{ github.event.workflow_run.run_number }}"
+          DATE=$(date +%Y%m%d-%H%M%S)
+          
+          LOG_FILENAME="${SAFE_NAME}_run${RUN_NUM}_${DATE}.txt"
+          LOG_PATH=".github/workflow-logs/${LOG_FILENAME}"
+          
+          # Create header
+          cat > "$LOG_PATH" << EOFHEADER
+          ================================================================================
+          FFMPEG ANDROID ARM32 BUILD - FULL WORKFLOW LOG
+          ================================================================================
+          
+          Workflow: ${{ github.event.workflow_run.name }}
+          Run: #${{ github.event.workflow_run.run_number }}
+          Run ID: ${{ github.event.workflow_run.id }}
+          Branch: ${{ github.event.workflow_run.head_branch }}
+          Status: ${{ github.event.workflow_run.conclusion }}
+          Date: ${{ github.event.workflow_run.created_at }}
+          URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
+          
+          ================================================================================
+          FULL LOG (All $(wc -l < full-log.txt) lines)
+          ================================================================================
+          
+          EOFHEADER
+          
+          # Append FULL log
+          cat full-log.txt >> "$LOG_PATH"
+          
+          # Footer
+          cat >> "$LOG_PATH" << EOFFOOTER
+          
+          ================================================================================
+          END OF FULL LOG
+          ================================================================================
+          File size: $(stat -c%s "$LOG_PATH") bytes
+          Lines: $(wc -l < "$LOG_PATH")
+          ================================================================================
+          EOFFOOTER
+          
+          LOG_SIZE=$(stat -c%s "$LOG_PATH")
+          echo "log_filename=$LOG_FILENAME" >> $GITHUB_OUTPUT
+          echo "log_path=$LOG_PATH" >> $GITHUB_OUTPUT
+          echo "✅ Created FULL log: $LOG_FILENAME ($LOG_SIZE bytes)"
+
+      - name: Upload to Gemini and get AI summary
+        id: ai_analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "📤 Uploading FULL error context to Gemini..."
+          
+          # Use error-context.txt (3000 lines) for Gemini analysis
+          FILE_SIZE=$(stat -c%s error-context.txt)
+          echo "Context size: $FILE_SIZE bytes"
+          
+          # Initialize upload
+          INIT_RESP=$(curl -s -X POST \
+            "https://generativelanguage.googleapis.com/upload/v1beta/files?key=$GEMINI_API_KEY" \
+            -H "X-Goog-Upload-Protocol: resumable" \
+            -H "X-Goog-Upload-Command: start" \
+            -H "X-Goog-Upload-Header-Content-Length: $FILE_SIZE" \
+            -H "X-Goog-Upload-Header-Content-Type: text/plain" \
+            -H "Content-Type: application/json" \
+            -d "{\"file\": {\"display_name\": \"error-context.txt\"}}")
+          
+          UPLOAD_URL=$(echo "$INIT_RESP" | grep -i "x-goog-upload-url:" | cut -d' ' -f2- | tr -d '\r')
+          
+          if [ -z "$UPLOAD_URL" ]; then
+            echo "⚠️ File upload failed, using text fallback"
+            
+            # Fallback: Use text in JSON (100KB)
+            cat > prompt.txt << 'EOFP'
+          Phân tích lỗi FFmpeg Android ARM32 ver8 (LibASS). Trả về JSON:
+          {"error_id":"ERROR-XXX","error_name":"short","root_cause":"cause","affected_library":"libass","error_type":"CONFIGURE","symptoms":["symptom"],"fix_suggestion":"fix","confidence":90}
+          
+          LOG:
+          EOFP
+            head -c 100000 error-context.txt >> prompt.txt
+            
+            ESCAPED=$(jq -Rs . < prompt.txt)
+            
+            cat > payload.json << EOFJ
+          {"contents":[{"parts":[{"text":$ESCAPED}]}],"generationConfig":{"temperature":0.1,"maxOutputTokens":2048,"responseMimeType":"application/json"}}
+          EOFJ
+            
+            RESP=$(curl -s -w "\nHTTP:%{http_code}" -X POST \
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=$GEMINI_API_KEY" \
+              -H "Content-Type: application/json" \
+              --data-binary @payload.json)
+            
+            HTTP=$(echo "$RESP" | tail -n 1 | cut -d: -f2)
+            BODY=$(echo "$RESP" | sed '$d')
+            
+            if [ "$HTTP" != "200" ]; then
+              echo "❌ API failed"
+              cat > ai-analysis.json << 'EOF'
+          {"error_id":"ERROR-999","error_name":"API error","root_cause":"Gemini unavailable","affected_library":"unknown","error_type":"API_ERROR","symptoms":["API error"],"fix_suggestion":"Check full log","confidence":20}
+          EOF
+            else
+              AI=$(echo "$BODY" | jq -r '.candidates[0].content.parts[0].text')
+              if [ -z "$AI" ] || [ "$AI" = "null" ]; then
+                cat > ai-analysis.json << 'EOF'
+          {"error_id":"ERROR-998","error_name":"Empty","root_cause":"Empty","affected_library":"unknown","error_type":"API_ERROR","symptoms":["Empty"],"fix_suggestion":"Retry","confidence":15}
+          EOF
+              else
+                if echo "$AI" | jq -e 'type == "array"' > /dev/null 2>&1; then
+                  echo "$AI" | jq '.[0]' > ai-analysis.json
+                else
+                  echo "$AI" > ai-analysis.json
+                fi
+              fi
+            fi
+          else
+            echo "✅ Upload URL received"
+            
+            # Upload file
+            UPLOAD_RESP=$(curl -s -X POST "$UPLOAD_URL" \
+              -H "Content-Length: $FILE_SIZE" \
+              -H "X-Goog-Upload-Offset: 0" \
+              -H "X-Goog-Upload-Command: upload, finalize" \
+              --data-binary @error-context.txt)
+            
+            FILE_URI=$(echo "$UPLOAD_RESP" | jq -r '.file.uri // empty')
+            
+            if [ -z "$FILE_URI" ]; then
+              echo "❌ Upload failed"
+              cat > ai-analysis.json << 'EOF'
+          {"error_id":"ERROR-996","error_name":"Upload failed","root_cause":"File upload error","affected_library":"unknown","error_type":"API_ERROR","symptoms":["Upload error"],"fix_suggestion":"Check API quota","confidence":10}
+          EOF
+            else
+              echo "✅ Uploaded: $FILE_URI"
+              
+              # Wait for processing
+              sleep 5
+              
+              # Analyze with file
+              PROMPT_TEXT="Phân tích FULL error log FFmpeg Android ARM32 ver8 (LibASS). Trả về JSON OBJECT: {\"error_id\":\"ERROR-XXX\",\"error_name\":\"Mô tả ngắn\",\"root_cause\":\"Nguyên nhân chi tiết\",\"affected_library\":\"libass\",\"error_type\":\"DEPENDENCY|LINKER|CONFIGURE|SYNTAX|UNKNOWN\",\"symptoms\":[\"triệu chứng\"],\"fix_suggestion\":\"Cách fix cụ thể\",\"confidence\":90}"
+              
+              GEN_RESP=$(curl -s -X POST \
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=$GEMINI_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d "{\"contents\":[{\"parts\":[{\"text\":\"$PROMPT_TEXT\"},{\"file_data\":{\"file_uri\":\"$FILE_URI\",\"mime_type\":\"text/plain\"}}]}],\"generationConfig\":{\"temperature\":0.1,\"maxOutputTokens\":2048,\"responseMimeType\":\"application/json\"}}")
+              
+              AI=$(echo "$GEN_RESP" | jq -r '.candidates[0].content.parts[0].text // empty')
+              
+              if [ -z "$AI" ]; then
+                echo "❌ Empty AI response"
+                cat > ai-analysis.json << 'EOF'
+          {"error_id":"ERROR-995","error_name":"Empty AI","root_cause":"No response","affected_library":"unknown","error_type":"API_ERROR","symptoms":["Empty"],"fix_suggestion":"Retry","confidence":10}
+          EOF
+              else
+                echo "✅ Got AI analysis"
+                if echo "$AI" | jq -e 'type == "array"' > /dev/null 2>&1; then
+                  echo "$AI" | jq '.[0]' > ai-analysis.json
+                else
+                  echo "$AI" > ai-analysis.json
+                fi
+              fi
+              
+              # Cleanup
+              curl -s -X DELETE "https://generativelanguage.googleapis.com/v1beta/$FILE_URI?key=$GEMINI_API_KEY" -o /dev/null
+            fi
+          fi
+          
+          cat ai-analysis.json
+          
+          echo "error_id=$(jq -r '.error_id // "ERROR-000"' ai-analysis.json)" >> $GITHUB_OUTPUT
+          echo "error_name=$(jq -r '.error_name // "Unknown"' ai-analysis.json)" >> $GITHUB_OUTPUT
+          echo "affected_lib=$(jq -r '.affected_library // "unknown"' ai-analysis.json)" >> $GITHUB_OUTPUT
+
+      - name: Init KB
+        run: |
+          if [ ! -f .github/ERROR_KNOWLEDGE_BASE.md ]; then
+            cat > .github/ERROR_KNOWLEDGE_BASE.md << 'EOF'
+          # 📚 FFmpeg Android ARM32 - Error Knowledge Base
+
+          > **AI:** Gemini với FULL log analysis  
+          > **Storage:** Full logs trên repo  
+          > **Tổng:** 0
+
+          ## 📋 Quick Reference
+
+          | ID | Lỗi | Thư viện | Ver | Full Log | Ngày |
+          |----|-----|----------|-----|----------|------|
+
+          ## 🔴 Chi tiết
+
+          EOF
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .github/ERROR_KNOWLEDGE_BASE.md
+            git commit -m "docs: Init KB"
+          fi
+
+      - name: Add entry
+        env:
+          ERROR_ID: ${{ steps.ai_analysis.outputs.error_id }}
+          ERROR_NAME: ${{ steps.ai_analysis.outputs.error_name }}
+          AFFECTED_LIB: ${{ steps.ai_analysis.outputs.affected_lib }}
+          VERSION: ${{ steps.extract_ver.outputs.version }}
+          LOG_FILE: ${{ steps.prepare_log.outputs.log_filename }}
+        run: |
+          JSON=$(cat ai-analysis.json)
+          ROOT=$(echo "$JSON" | jq -r '.root_cause // "N/A"')
+          TYPE=$(echo "$JSON" | jq -r '.error_type // "UNKNOWN"')
+          FIX=$(echo "$JSON" | jq -r '.fix_suggestion // "N/A"')
+          SYMP=$(echo "$JSON" | jq -r '.symptoms // ["N/A"] | join(", ")')
+          CONF=$(echo "$JSON" | jq -r '.confidence // 0')
+          
+          sed -i "/^| ID/a | $ERROR_ID | $ERROR_NAME | $AFFECTED_LIB | $VERSION | [\`$LOG_FILE\`](.github/workflow-logs/$LOG_FILE) | $(date +%Y-%m-%d) |" .github/ERROR_KNOWLEDGE_BASE.md
+          
+          TOTAL=$(grep -c "^### 🔴" .github/ERROR_KNOWLEDGE_BASE.md 2>/dev/null || echo "0")
+          NEW=$((TOTAL + 1))
+          sed -i "s/Tổng:\*\* [0-9]*/Tổng:** $NEW/" .github/ERROR_KNOWLEDGE_BASE.md
+          
+          cat >> .github/ERROR_KNOWLEDGE_BASE.md << EOF
+
+          ### 🔴 $ERROR_ID: $ERROR_NAME
+
+          **📅** $(date +%Y-%m-%d) | **🔗** [Run #${{ github.event.workflow_run.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }})  
+          **🎯** \`$AFFECTED_LIB\` | **🏷️** \`$VERSION\` | **🤖** ${CONF}%
+
+          **📄 FULL Log (2.7MB):** [\`.github/workflow-logs/$LOG_FILE\`](.github/workflow-logs/$LOG_FILE)
+
+          **⚠️ Triệu chứng:** $SYMP
+
+          **🔍 Nguyên nhân (Gemini analyzed FULL log):** $ROOT
+
+          **🛠️ Fix:** $FIX
+
+          **📝** \`$TYPE\`
+
+          ---
+
+          EOF
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/workflow-logs/ .github/ERROR_KNOWLEDGE_BASE.md
+          if ! git diff --staged --quiet; then
+            git commit -m "🤖 ${{ steps.ai_analysis.outputs.error_id }} [ver8] + FULL 2.7MB log"
+            git push
+            echo "✅ Pushed"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## ✅ Complete" >> $GITHUB_STEP_SUMMARY
+          echo "**Ver:** ver8" >> $GITHUB_STEP_SUMMARY
+          echo "**Error:** ${{ steps.ai_analysis.outputs.error_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**FULL Log:** \`.github/workflow-logs/${{ steps.prepare_log.outputs.log_filename }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🤖 Gemini Analysis (From FULL log):" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+          cat ai-analysis.json 2>/dev/null || echo "{}"
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "💡 **Perplexity:** Đọc file trên và phân tích sâu hơn" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf current-log/ current-log.zip full-log.txt error-context.txt ai-analysis.json prompt.txt payload.json 2>/dev/null || true
