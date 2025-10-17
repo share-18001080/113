@@ -1,0 +1,190 @@
+# FFmpeg Build Error Summary
+
+## Workflow Info
+
+- **Name:** Build FFmpeg Android ARM32 (Full Features + LibASS COMPLETELY FIXED - ver9-fixed)
+- **Run:** #1
+- **Version:** ver9
+- **Date:** 2025-10-17 10:44:27
+- **Status:** Failed
+- **GitHub:** https://github.com/share-18001080/113/actions/runs/18590219901
+
+## AI Analysis (Gemini 2.0 Flash)
+
+```json
+{
+"error_id": "ERROR-001",
+"error_name": "Harfbuzz dependency not found for libass",
+"root_cause": "The build system (Meson) could not locate the harfbuzz library using pkg-config. This indicates that harfbuzz is either not installed, not configured correctly, or pkg-config is not finding it in the expected location.",
+"affected_library": "libass",
+"error_type": "DEPENDENCY",
+"symptoms": [
+"Build fails during libass configuration",
+"Meson reports 'Dependency \"harfbuzz\" not found'"
+],
+"fix_suggestion": "Install harfbuzz and ensure pkg-config can find it. Verify that the PKG_CONFIG_PATH environment variable includes the directory containing harfbuzz's .pc file. If harfbuzz is installed in a non-standard location, explicitly set PKG_CONFIG_PATH before running the build. Alternatively, provide harfbuzz's location directly to Meson if possible.",
+"confidence": 95
+}
+```
+
+### Error Details
+
+**Error ID:** ERROR-001
+**Error Name:** Harfbuzz dependency not found for libass
+**Affected Library:** libass
+**Error Type:** DEPENDENCY
+**AI Confidence:** 95%
+
+**Symptoms:**
+
+- Build fails during libass configuration
+- Meson reports 'Dependency "harfbuzz" not found'
+
+**Root Cause:**
+
+The build system (Meson) could not locate the harfbuzz library using pkg-config. This indicates that harfbuzz is either not installed, not configured correctly, or pkg-config is not finding it in the expected location.
+
+**Fix Suggestion:**
+
+Install harfbuzz and ensure pkg-config can find it. Verify that the PKG_CONFIG_PATH environment variable includes the directory containing harfbuzz's .pc file. If harfbuzz is installed in a non-standard location, explicitly set PKG_CONFIG_PATH before running the build. Alternatively, provide harfbuzz's location directly to Meson if possible.
+
+## Error Context (20 lines before exit code)
+
+```
+2025-10-17T10:44:02.5473413Z Header "sys/stat.h" has symbol "fstat" : YES 
+2025-10-17T10:44:02.5473665Z Library m found: YES
+2025-10-17T10:44:02.5473938Z Run-time dependency iconv found: NO (tried builtin and system)
+2025-10-17T10:44:02.5474451Z Found pkg-config: YES (/home/runner/work/113/113/external/../build/external/bin/pkg-config) 1.8.1
+2025-10-17T10:44:02.5474899Z Run-time dependency freetype2 found: YES 26.1.20
+2025-10-17T10:44:02.5475183Z Run-time dependency fribidi found: YES 1.0.13
+2025-10-17T10:44:02.5475433Z Found CMake: NO
+2025-10-17T10:44:02.5475669Z Run-time dependency harfbuzz found: NO (tried pkgconfig)
+2025-10-17T10:44:02.5475884Z 
+2025-10-17T10:44:02.5476059Z meson.build:115:8: ERROR: Dependency "harfbuzz" not found, tried pkgconfig
+2025-10-17T10:44:02.5476315Z 
+2025-10-17T10:44:02.5476593Z A full log can be found at /home/runner/work/113/113/external/libass/build_android/meson-logs/meson-log.txt
+2025-10-17T10:44:02.5757910Z ✅ Meson setup SUCCESS - building...
+2025-10-17T10:44:02.7701170Z 
+2025-10-17T10:44:02.7702188Z ERROR: Current directory is not a meson build directory: `/home/runner/work/113/113/external/libass/build_android`.
+2025-10-17T10:44:02.7702918Z Please specify a valid build dir or change the working directory to it.
+2025-10-17T10:44:02.7703377Z It is also possible that the build directory was generated with an old
+2025-10-17T10:44:02.7703777Z meson version. Please regenerate it in this case.
+2025-10-17T10:44:02.7922870Z ✅ Meson build SUCCESS - installing...
+2025-10-17T10:44:02.9852366Z Install data not found. Run this command in build directory root.
+2025-10-17T10:44:03.0088697Z ##[error]Process completed with exit code 1.
+```
+
+## Detail Log Reference
+
+```
+/home/runner/work/113/113/external/libass/build_android/meson-logs/meson-log.txt
+```
+
+### Detail Log Content
+
+```
+2025-10-17T10:44:02.5476593Z A full log can be found at /home/runner/work/113/113/external/libass/build_android/meson-logs/meson-log.txt
+2025-10-17T10:44:02.5757910Z ✅ Meson setup SUCCESS - building...
+2025-10-17T10:44:02.7701170Z 
+2025-10-17T10:44:02.7702188Z ERROR: Current directory is not a meson build directory: `/home/runner/work/113/113/external/libass/build_android`.
+2025-10-17T10:44:02.7702918Z Please specify a valid build dir or change the working directory to it.
+2025-10-17T10:44:02.7703377Z It is also possible that the build directory was generated with an old
+2025-10-17T10:44:02.7703777Z meson version. Please regenerate it in this case.
+2025-10-17T10:44:02.7922870Z ✅ Meson build SUCCESS - installing...
+2025-10-17T10:44:02.9852366Z Install data not found. Run this command in build directory root.
+2025-10-17T10:44:03.0088697Z ##[error]Process completed with exit code 1.
+﻿2025-10-17T10:40:27.9180016Z ##[group]Run sudo /usr/sbin/update-ccache-symlinks
+2025-10-17T10:40:27.9180652Z [36;1msudo /usr/sbin/update-ccache-symlinks[0m
+2025-10-17T10:40:27.9181360Z [36;1mecho 'export PATH="/usr/lib/ccache:$PATH"' | tee -a ~/.bashrc[0m
+2025-10-17T10:40:27.9226308Z shell: /usr/bin/bash -e {0}
+2025-10-17T10:40:27.9226667Z env:
+2025-10-17T10:40:27.9226941Z   ANDROID_API_LEVEL: 21
+2025-10-17T10:40:27.9227273Z   ANDROID_ABI: armeabi-v7a
+2025-10-17T10:40:27.9227632Z   NDK_VERSION: r25c
+2025-10-17T10:40:27.9227936Z   FFMPEG_VERSION: n7.1
+2025-10-17T10:40:27.9228257Z   MAKEFLAGS: -j$(nproc)
+2025-10-17T10:40:27.9228757Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T10:40:27.9229491Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T10:40:27.9230069Z ##[endgroup]
+2025-10-17T10:40:27.9475758Z export PATH="/usr/lib/ccache:$PATH"
+﻿2025-10-17T10:44:03.9770458Z Post job cleanup.
+﻿2025-10-17T10:40:47.5428334Z ##[group]Run cd external
+2025-10-17T10:40:47.5428654Z [36;1mcd external[0m
+2025-10-17T10:40:47.5428934Z [36;1mexport ANDROID_NDK_HOME=/opt/hostedtoolcache/ndk/r25c/x64[0m
+2025-10-17T10:40:47.5429415Z [36;1mexport TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64[0m
+2025-10-17T10:40:47.5429903Z [36;1mexport CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang[0m
+2025-10-17T10:40:47.5430335Z [36;1mexport CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++[0m
+2025-10-17T10:40:47.5430695Z [36;1mexport AR=$TOOLCHAIN_PATH/bin/llvm-ar[0m
+2025-10-17T10:40:47.5430988Z [36;1mexport RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib[0m
+2025-10-17T10:40:47.5431297Z [36;1mexport STRIP=$TOOLCHAIN_PATH/bin/llvm-strip[0m
+2025-10-17T10:40:47.5431589Z [36;1mexport SYSROOT=$TOOLCHAIN_PATH/sysroot[0m
+2025-10-17T10:40:47.5432105Z [36;1mexport PREFIX=$(pwd)/../build/external[0m
+2025-10-17T10:40:47.5432376Z [36;1mexport BUILD_HOST=x86_64-pc-linux-gnu[0m
+2025-10-17T10:40:47.5432651Z [36;1mexport TARGET_HOST=arm-linux-androideabi[0m
+2025-10-17T10:40:47.5433257Z [36;1mexport CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"[0m
+2025-10-17T10:40:47.5434082Z [36;1mexport CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"[0m
+2025-10-17T10:40:47.5434658Z [36;1mexport CPPFLAGS="-I$PREFIX/include"[0m
+2025-10-17T10:40:47.5434959Z [36;1mexport LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"[0m
+2025-10-17T10:40:47.5435289Z [36;1mexport PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"[0m
+2025-10-17T10:40:47.5435579Z [36;1mexport PATH=$TOOLCHAIN_PATH/bin:$PATH[0m
+2025-10-17T10:40:47.5435820Z [36;1m[0m
+2025-10-17T10:40:47.5435989Z [36;1mecho "Building x264..."[0m
+2025-10-17T10:40:47.5436327Z [36;1mgit clone --depth 1 https://code.videolan.org/videolan/x264.git[0m
+2025-10-17T10:40:47.5436659Z [36;1mcd x264[0m
+2025-10-17T10:40:47.5436899Z [36;1m./configure --prefix=$PREFIX --host=$TARGET_HOST \[0m
+2025-10-17T10:40:47.5437308Z [36;1m  --cross-prefix=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21- \[0m
+2025-10-17T10:40:47.5437706Z [36;1m  --sysroot=$SYSROOT --enable-static --disable-cli \[0m
+2025-10-17T10:40:47.5438007Z [36;1m  --enable-pic --disable-asm \[0m
+2025-10-17T10:40:47.5438317Z [36;1m  --extra-cflags="$CFLAGS" --extra-ldflags="$LDFLAGS"[0m
+2025-10-17T10:40:47.5438612Z [36;1mmake -j$(nproc)[0m
+2025-10-17T10:40:47.5438811Z [36;1mmake install[0m
+2025-10-17T10:40:47.5438987Z [36;1mcd ..[0m
+2025-10-17T10:40:47.5439150Z [36;1m[0m
+2025-10-17T10:40:47.5439310Z [36;1mecho "Building x265..."[0m
+2025-10-17T10:40:47.5439667Z [36;1mgit clone --depth 1 https://bitbucket.org/multicoreware/x265_git.git x265[0m
+2025-10-17T10:40:47.5440199Z [36;1mcd x265/build/linux[0m
+2025-10-17T10:40:47.5440520Z [36;1msed -i '1i cmake_policy(SET CMP0074 OLD)' ../../source/CMakeLists.txt || true[0m
+2025-10-17T10:40:47.5440871Z [36;1mcmake -G "Unix Makefiles" \[0m
+2025-10-17T10:40:47.5441238Z [36;1m  -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \[0m
+2025-10-17T10:40:47.5442117Z [36;1m  -DANDROID_ABI=armeabi-v7a -DANDROID_PLATFORM=android-21 \[0m
+2025-10-17T10:40:47.5442721Z [36;1m  -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX \[0m
+2025-10-17T10:40:47.5443117Z [36;1m  -DENABLE_SHARED=OFF -DENABLE_CLI=OFF -DENABLE_PIC=ON \[0m
+2025-10-17T10:40:47.5443551Z [36;1m  -DENABLE_ASSEMBLY=OFF -DCMAKE_CXX_FLAGS="$CXXFLAGS -Wno-unused-parameter" \[0m
+2025-10-17T10:40:47.5443911Z [36;1m  ../../source[0m
+2025-10-17T10:40:47.5444112Z [36;1mmake -j$(nproc)[0m
+2025-10-17T10:40:47.5444302Z [36;1mmake install[0m
+2025-10-17T10:40:47.5444478Z [36;1m[0m
+2025-10-17T10:40:47.5444704Z [36;1mecho "prefix=$PREFIX" > $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5445086Z [36;1mecho "exec_prefix=\${prefix}" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5445474Z [36;1mecho "libdir=\${exec_prefix}/lib" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5446092Z [36;1mecho "includedir=\${prefix}/include" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5446459Z [36;1mecho "" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5446759Z [36;1mecho "Name: x265" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5447158Z [36;1mecho "Description: H.265/HEVC video encoder" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5447563Z [36;1mecho "Version: 3.5" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5447926Z [36;1mecho "Libs: -L\${libdir} -lx265" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5448338Z [36;1mecho "Libs.private: -lstdc++ -lm -ldl" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5448748Z [36;1mecho "Cflags: -I\${includedir}" >> $PREFIX/lib/pkgconfig/x265.pc[0m
+2025-10-17T10:40:47.5449066Z [36;1mcd ../../..[0m
+2025-10-17T10:40:47.5449248Z [36;1m[0m
+2025-10-17T10:40:47.5449424Z [36;1mecho "Building libvpx..."[0m
+2025-10-17T10:40:47.5449774Z [36;1mgit clone --depth 1 https://chromium.googlesource.com/webm/libvpx.git[0m
+2025-10-17T10:40:47.5450109Z [36;1mcd libvpx[0m
+2025-10-17T10:40:47.5450296Z [36;1munset AS ASFLAGS[0m
+2025-10-17T10:40:47.5450591Z [36;1mexport AS=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang[0m
+2025-10-17T10:40:47.5450919Z [36;1mexport ASFLAGS="-c"[0m
+2025-10-17T10:40:47.5451205Z [36;1m./configure --target=armv7-android-gcc --prefix=$PREFIX \[0m
+2025-10-17T10:40:47.5451565Z [36;1m  --disable-shared --enable-static --enable-pic \[0m
+2025-10-17T10:40:47.5452155Z [36;1m  --disable-examples --disable-docs --disable-unit-tests \[0m
+2025-10-17T10:40:47.5452566Z [36;1m  --disable-tools --disable-runtime-cpu-detect --disable-neon-asm[0m
+2025-10-17T10:40:47.5452893Z [36;1mmake -j$(nproc)[0m
+2025-10-17T10:40:47.5453090Z [36;1mmake install[0m
+2025-10-17T10:40:47.5453271Z [36;1mcd ..[0m
+2025-10-17T10:40:47.5485198Z shell: /usr/bin/bash -e {0}
+2025-10-17T10:40:47.5485424Z env:
+2025-10-17T10:40:47.5485601Z   ANDROID_API_LEVEL: 21
+```
+
+---
+
+**For Perplexity:** Read this summary in the `logs/Error Summaries/` folder and suggest detailed fix steps.
