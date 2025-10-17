@@ -1,0 +1,174 @@
+# FFmpeg Build Error Summary
+
+## Workflow Info
+
+- **Name:** Build FFmpeg Android ARM32 (Full Features + LibASS COMPLETELY FIXED - ver9-fixed)
+- **Run:** #1
+- **Version:** ver9
+- **Date:** 2025-10-17 04:30:34
+- **Status:** Failed
+- **GitHub:** https://github.com/share-18001080/113/actions/runs/18582366338
+
+## AI Analysis (Gemini 2.0 Flash)
+
+```json
+{"error_id":"ERROR-999","error_name":"API error","root_cause":"Gemini failed","affected_library":"unknown","error_type":"API_ERROR","symptoms":["API error"],"fix_suggestion":"Review manually","confidence":20}
+```
+
+### Error Details
+
+**Error ID:** ERROR-999  
+**Error Name:** API error  
+**Affected Library:** unknown  
+**Error Type:** API_ERROR  
+**AI Confidence:** 20%
+
+**Symptoms:**
+- API error
+
+**Root Cause:**  
+Gemini failed
+
+**Fix Suggestion:**  
+Review manually
+
+## Error Context (20 lines before exit code)
+
+```
+2025-10-17T04:30:12.5765945Z Header "sys/stat.h" has symbol "fstat" : YES 
+2025-10-17T04:30:12.5766216Z Library m found: YES
+2025-10-17T04:30:12.5766503Z Run-time dependency iconv found: NO (tried builtin and system)
+2025-10-17T04:30:12.5767388Z Found pkg-config: YES (/home/runner/work/113/113/external/../build/external/bin/pkg-config) 1.8.1
+2025-10-17T04:30:12.5767892Z Run-time dependency freetype2 found: YES 26.1.20
+2025-10-17T04:30:12.5768206Z Run-time dependency fribidi found: YES 1.0.13
+2025-10-17T04:30:12.5768485Z Found CMake: NO
+2025-10-17T04:30:12.5768741Z Run-time dependency harfbuzz found: NO (tried pkgconfig)
+2025-10-17T04:30:12.5768983Z 
+2025-10-17T04:30:12.5769176Z meson.build:115:8: ERROR: Dependency "harfbuzz" not found, tried pkgconfig
+2025-10-17T04:30:12.5769441Z 
+2025-10-17T04:30:12.5769723Z A full log can be found at /home/runner/work/113/113/external/libass/build_android/meson-logs/meson-log.txt
+2025-10-17T04:30:12.6117461Z ✅ Meson setup SUCCESS - building...
+2025-10-17T04:30:12.8113242Z 
+2025-10-17T04:30:12.8114269Z ERROR: Current directory is not a meson build directory: `/home/runner/work/113/113/external/libass/build_android`.
+2025-10-17T04:30:12.8115127Z Please specify a valid build dir or change the working directory to it.
+2025-10-17T04:30:12.8115707Z It is also possible that the build directory was generated with an old
+2025-10-17T04:30:12.8116175Z meson version. Please regenerate it in this case.
+2025-10-17T04:30:12.8389293Z ✅ Meson build SUCCESS - installing...
+2025-10-17T04:30:13.0379403Z Install data not found. Run this command in build directory root.
+2025-10-17T04:30:13.0667849Z ##[error]Process completed with exit code 1.
+```
+
+## Detail Log Reference
+
+```
+/home/runner/work/113/113/external/libass/build_android/meson-logs/meson-log.txt
+```
+
+### Detail Log Content
+
+```
+2025-10-17T04:30:12.5769723Z A full log can be found at /home/runner/work/113/113/external/libass/build_android/meson-logs/meson-log.txt
+2025-10-17T04:30:12.6117461Z ✅ Meson setup SUCCESS - building...
+2025-10-17T04:30:12.8113242Z 
+2025-10-17T04:30:12.8114269Z ERROR: Current directory is not a meson build directory: `/home/runner/work/113/113/external/libass/build_android`.
+2025-10-17T04:30:12.8115127Z Please specify a valid build dir or change the working directory to it.
+2025-10-17T04:30:12.8115707Z It is also possible that the build directory was generated with an old
+2025-10-17T04:30:12.8116175Z meson version. Please regenerate it in this case.
+2025-10-17T04:30:12.8389293Z ✅ Meson build SUCCESS - installing...
+2025-10-17T04:30:13.0379403Z Install data not found. Run this command in build directory root.
+2025-10-17T04:30:13.0667849Z ##[error]Process completed with exit code 1.
+2025-10-17T04:30:13.0743792Z ##[group]Run actions/upload-artifact@v4
+2025-10-17T04:30:13.0744061Z with:
+2025-10-17T04:30:13.0744275Z   name: build-logs-complete-libass-completely-fixed
+2025-10-17T04:30:13.0744551Z   path: logs/
+2025-10-17T04:30:13.0744729Z   retention-days: 7
+2025-10-17T04:30:13.0744908Z   if-no-files-found: warn
+2025-10-17T04:30:13.0745107Z   compression-level: 6
+2025-10-17T04:30:13.0745293Z   overwrite: false
+2025-10-17T04:30:13.0745481Z   include-hidden-files: false
+2025-10-17T04:30:13.0745676Z env:
+2025-10-17T04:30:13.0745832Z   ANDROID_API_LEVEL: 21
+2025-10-17T04:30:13.0746021Z   ANDROID_ABI: armeabi-v7a
+2025-10-17T04:30:13.0746221Z   NDK_VERSION: r25c
+2025-10-17T04:30:13.0746393Z   FFMPEG_VERSION: n7.1
+2025-10-17T04:30:13.0746790Z   MAKEFLAGS: -j$(nproc)
+2025-10-17T04:30:13.0747260Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T04:30:13.0747694Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T04:30:13.0748143Z ##[endgroup]
+2025-10-17T04:30:13.3009487Z With the provided path, there will be 7 files uploaded
+2025-10-17T04:30:13.3016070Z Artifact name is valid!
+2025-10-17T04:30:13.3017115Z Root directory input is valid!
+2025-10-17T04:30:13.4378089Z Beginning upload of artifact content to blob storage
+2025-10-17T04:30:13.5835521Z Uploaded bytes 20040
+2025-10-17T04:30:13.6164496Z Finished uploading artifact content to blob storage!
+2025-10-17T04:30:13.6168009Z SHA256 digest of uploaded artifact zip is 51b42555e0495d02bb6fdd0fdfebd734c8724351f9e8da0d83c7dd319537e28c
+2025-10-17T04:30:13.6169537Z Finalizing artifact upload
+2025-10-17T04:30:13.7019394Z Artifact build-logs-complete-libass-completely-fixed.zip successfully finalized. Artifact ID 4295992755
+2025-10-17T04:30:13.7021131Z Artifact build-logs-complete-libass-completely-fixed has been successfully uploaded! Final size is 20040 bytes. Artifact ID is 4295992755
+2025-10-17T04:30:13.7028321Z Artifact download URL: https://github.com/share-18001080/113/actions/runs/18582366338/artifacts/4295992755
+2025-10-17T04:30:13.7195286Z Post job cleanup.
+2025-10-17T04:30:13.8987531Z Post job cleanup.
+2025-10-17T04:30:13.9951806Z [command]/usr/bin/git version
+2025-10-17T04:30:13.9989003Z git version 2.51.0
+2025-10-17T04:30:14.0035176Z Temporarily overriding HOME='/home/runner/work/_temp/a30d8af6-879f-4780-9489-e44e06413376' before making global git config changes
+2025-10-17T04:30:14.0036470Z Adding repository directory to the temporary git global config as a safe directory
+2025-10-17T04:30:14.0048644Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/113/113
+2025-10-17T04:30:14.0082313Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-10-17T04:30:14.0113741Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-10-17T04:30:14.0332504Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-10-17T04:30:14.0354165Z http.https://github.com/.extraheader
+2025-10-17T04:30:14.0370478Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2025-10-17T04:30:14.0413809Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-10-17T04:30:14.0752109Z Cleaning up orphan processes
+﻿2025-10-17T04:30:24.2866205Z Cleaning up orphan processes
+2025-10-17T04:30:16.0340000Z Requested labels: ubuntu-latest
+2025-10-17T04:30:16.0340000Z Job defined at: share-18001080/113/.github/workflows/ver8-libass-completely-fixed.yml@refs/heads/main
+2025-10-17T04:30:16.0340000Z Waiting for a runner to pick up this job...
+2025-10-17T04:30:16.5270000Z Job is waiting for a hosted runner to come online.
+2025-10-17T04:30:16.5270000Z Job is about to start running on the hosted runner: GitHub Actions 1000000988﻿2025-10-17T04:30:23.7877168Z ##[group]Run if [ "failure" == "success" ]; then
+2025-10-17T04:30:23.7878049Z [36;1mif [ "failure" == "success" ]; then[0m
+2025-10-17T04:30:23.7879164Z [36;1m  echo "🎉 SUCCESS: Complete FFmpeg build with ALL features + LibASS COMPLETELY FIXED!"[0m
+2025-10-17T04:30:23.7880412Z [36;1m  echo "📱 Ready for Android deployment with full codec support"[0m
+2025-10-17T04:30:23.7881464Z [36;1m  echo "🎉 LibASS dependency issues completely resolved (ver9)"[0m
+2025-10-17T04:30:23.7882263Z [36;1melse[0m
+2025-10-17T04:30:23.7883044Z [36;1m  echo "❌ FAILED: Complete build encountered errors"[0m
+2025-10-17T04:30:23.7883775Z [36;1m  echo "📋 Check build logs for details"[0m
+2025-10-17T04:30:23.7884481Z [36;1mfi[0m
+2025-10-17T04:30:24.2393179Z shell: /usr/bin/bash -e {0}
+2025-10-17T04:30:24.2394662Z ##[endgroup]
+2025-10-17T04:30:24.2765507Z ❌ FAILED: Complete build encountered errors
+2025-10-17T04:30:24.2766406Z 📋 Check build logs for details
+﻿2025-10-17T04:30:23.6665792Z Current runner version: '2.328.0'
+2025-10-17T04:30:23.6691446Z ##[group]Runner Image Provisioner
+2025-10-17T04:30:23.6692357Z Hosted Compute Agent
+2025-10-17T04:30:23.6692883Z Version: 20251013.424
+2025-10-17T04:30:23.6693615Z Commit: cfdd8bfed34d71a55b72df4d2e82343c3fc2bab3
+2025-10-17T04:30:23.6694303Z Build Date: 2025-10-13T20:22:23Z
+2025-10-17T04:30:23.6694913Z ##[endgroup]
+2025-10-17T04:30:23.6695460Z ##[group]Operating System
+2025-10-17T04:30:23.6696051Z Ubuntu
+2025-10-17T04:30:23.6696580Z 24.04.3
+2025-10-17T04:30:23.6697059Z LTS
+2025-10-17T04:30:23.6697566Z ##[endgroup]
+2025-10-17T04:30:23.6698034Z ##[group]Runner Image
+2025-10-17T04:30:23.6698612Z Image: ubuntu-24.04
+2025-10-17T04:30:23.6699118Z Version: 20251014.76.1
+2025-10-17T04:30:23.6700306Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20251014.76/images/ubuntu/Ubuntu2404-Readme.md
+2025-10-17T04:30:23.6701614Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20251014.76
+2025-10-17T04:30:23.6702831Z ##[endgroup]
+2025-10-17T04:30:23.6703929Z ##[group]GITHUB_TOKEN Permissions
+2025-10-17T04:30:23.6706588Z Actions: read
+2025-10-17T04:30:23.6707244Z Contents: read
+2025-10-17T04:30:23.6707835Z Metadata: read
+2025-10-17T04:30:23.6708355Z ##[endgroup]
+2025-10-17T04:30:23.6710772Z Secret source: Actions
+2025-10-17T04:30:23.6712169Z Prepare workflow directory
+2025-10-17T04:30:23.7046917Z Prepare all required actions
+2025-10-17T04:30:23.7141638Z Complete job name: notify-completion
+﻿2025-10-17T04:30:23.6666380Z Current runner version: '2.328.0'
+2025-10-17T04:30:23.6691469Z ##[group]Runner Image Provisioner
+```
+
+---
+
+**For Perplexity:** Read this summary in the `logs/Error Summaries/` folder and suggest detailed fix steps.
