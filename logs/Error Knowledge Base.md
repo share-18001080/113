@@ -3,11 +3,12 @@
 > **Purpose:** Track all build errors for FFmpeg Android ARM32
 > **AI:** Gemini 2.0 Flash with detail log analysis
 > **Storage:** All logs in `/logs/` folder (Perplexity-optimized)
-> **Total Errors:** 13
+> **Total Errors:** 14
 
 ## Quick Reference
 
 | ID | Error | Library | Version | Summary | Date |
+| ERROR-004 | Meson build fails due to unknown options | libass | unknown | [`Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver8 Fixed run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver8 Fixed run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | HarfBuzz missing during LibASS build | libass | unknown | [`Build FFmpeg Android ARM32 ULTIMATE COMPLETE - Ver15 Fixed All Errors run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE COMPLETE - Ver15 Fixed All Errors run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | FreeType2 build failed with exit code 8. | libass | ver8 | [`Build FFmpeg Android ARM32 ULTIMATE FIXED - All Libraries LibASS LibSOXR - ver8-ultra run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE FIXED - All Libraries LibASS LibSOXR - ver8-ultra run1 20251017.md) | 2025-10-17 |
 | ERROR-HB001 | HarfBuzz compiler cannot compile programs | libass | unknown | [`Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver15 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver15 run1 20251017.md) | 2025-10-17 |
@@ -239,6 +240,23 @@
 **🔍 Root Cause:** The LibASS build process requires the HarfBuzz library, but it is not found in the system or specified dependency paths.
 **🛠️ Fix Suggestion:** Install HarfBuzz and ensure it is discoverable by the build system. This might involve installing the HarfBuzz development package (e.g., libharfbuzz-dev on Debian/Ubuntu) and setting the PKG_CONFIG_PATH environment variable to point to the directory containing the harfbuzz.pc file. Verify that the HarfBuzz version is compatible with LibASS.
 **📝 Type:** `DEPENDENCY`
+
+---
+
+
+### 🔴 ERROR-004: Meson build fails due to unknown options
+
+**📅 Date:** 2025-10-17
+**🔗 GitHub:** [Run #1](https://github.com/share-18001080/113/actions/runs/18607413038)
+**🎯 Library:** `libass`
+**🏷️ Version:** `unknown`
+**🤖 AI Confidence:** 95%
+**📄 Full Summary:** [`Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver8 Fixed run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver8 Fixed run1 20251017.md)
+**📋 Detail Log:** [`meson-log unknown run1.txt`](Detail Logs/meson-log unknown run1.txt)
+**⚠️ Symptoms:** Build process terminates, Meson reports 'Unknown options' error
+**🔍 Root Cause:** The Meson build system for libass is invoked with options (freetype, fribidi, harfbuzz) that are not recognized or supported by the build configuration. This indicates an issue with the build script or the Meson configuration files.
+**🛠️ Fix Suggestion:** Examine the meson.build file in the libass source directory to identify the valid options. Review the build script to ensure that the correct options are being passed to Meson. Remove or correct the invalid options (freetype, fribidi, harfbuzz) from the Meson command line or configuration. Ensure that the Meson version is compatible with the libass build system.
+**📝 Type:** `CONFIGURE`
 
 ---
 

@@ -1,3 +1,85 @@
+# FFmpeg Build Error Summary
+
+## Workflow Info
+
+- **Name:** Build FFmpeg Android ARM32 (ULTIMATE COMPLETE FIXED - All Libraries Ver8 Fixed)
+- **Run:** #1
+- **Version:** unknown
+- **Date:** 2025-10-17 23:46:33
+- **Status:** Failed
+- **GitHub:** https://github.com/share-18001080/113/actions/runs/18607413038
+
+## AI Analysis (Gemini 2.0 Flash)
+
+```json
+{
+"error_id": "ERROR-004",
+"error_name": "Meson build fails due to unknown options",
+"root_cause": "The Meson build system for libass is invoked with options (freetype, fribidi, harfbuzz) that are not recognized or supported by the build configuration. This indicates an issue with the build script or the Meson configuration files.",
+"affected_library": "libass",
+"error_type": "CONFIGURE",
+"symptoms": ["Build process terminates", "Meson reports 'Unknown options' error"],
+"fix_suggestion": "Examine the meson.build file in the libass source directory to identify the valid options. Review the build script to ensure that the correct options are being passed to Meson. Remove or correct the invalid options (freetype, fribidi, harfbuzz) from the Meson command line or configuration. Ensure that the Meson version is compatible with the libass build system.",
+"confidence": 95
+}
+```
+
+### Error Details
+
+**Error ID:** ERROR-004
+**Error Name:** Meson build fails due to unknown options
+**Affected Library:** libass
+**Error Type:** CONFIGURE
+**AI Confidence:** 95%
+
+**Symptoms:**
+
+- Build process terminates
+- Meson reports 'Unknown options' error
+
+**Root Cause:**
+
+The Meson build system for libass is invoked with options (freetype, fribidi, harfbuzz) that are not recognized or supported by the build configuration. This indicates an issue with the build script or the Meson configuration files.
+
+**Fix Suggestion:**
+
+Examine the meson.build file in the libass source directory to identify the valid options. Review the build script to ensure that the correct options are being passed to Meson. Remove or correct the invalid options (freetype, fribidi, harfbuzz) from the Meson command line or configuration. Ensure that the Meson version is compatible with the libass build system.
+
+## Error Context (20 lines before exit code)
+
+```
+2025-10-17T23:46:08.0666363Z   ANDROID_API_LEVEL: 21
+2025-10-17T23:46:08.0666569Z   ANDROID_ABI: armeabi-v7a
+2025-10-17T23:46:08.0666773Z   NDK_VERSION: r25c
+2025-10-17T23:46:08.0666946Z   FFMPEG_VERSION: n7.1
+2025-10-17T23:46:08.0667129Z   MAKEFLAGS: -j$(nproc)
+2025-10-17T23:46:08.0667431Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T23:46:08.0667854Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T23:46:08.0668181Z ##[endgroup]
+2025-10-17T23:46:08.0723787Z 🔧 Building LibASS (FIXED for ALL LibASS Errors)...
+2025-10-17T23:46:08.0737082Z Cloning into 'libass'...
+2025-10-17T23:46:08.8544776Z DEPRECATION: "pkgconfig" entry is deprecated and should be replaced by "pkg-config"
+2025-10-17T23:46:08.8545821Z The Meson build system
+2025-10-17T23:46:08.8546156Z Version: 1.3.2
+2025-10-17T23:46:08.8546515Z Source dir: /home/runner/work/113/113/external/libass
+2025-10-17T23:46:08.8547086Z Build dir: /home/runner/work/113/113/external/libass/build_android
+2025-10-17T23:46:08.8547574Z Build type: cross build
+2025-10-17T23:46:08.8547767Z 
+2025-10-17T23:46:08.8548027Z meson.build:1:0: ERROR: Unknown options: "freetype, fribidi, harfbuzz"
+2025-10-17T23:46:08.8548423Z 
+2025-10-17T23:46:08.8548877Z A full log can be found at /home/runner/work/113/113/external/libass/build_android/meson-logs/meson-log.txt
+2025-10-17T23:46:08.8829620Z ##[error]Process completed with exit code 1.
+```
+
+## Detail Log Reference
+
+```
+/home/runner/work/113/113/external/libass/build_android/meson-logs/meson-log.txt
+```
+
+### Detail Log Content
+
+```
 2025-10-17T23:46:08.8548877Z A full log can be found at /home/runner/work/113/113/external/libass/build_android/meson-logs/meson-log.txt
 2025-10-17T23:46:08.8829620Z ##[error]Process completed with exit code 1.
 2025-10-17T23:46:08.8924248Z ##[group]Run actions/upload-artifact@v4
@@ -98,3 +180,8 @@
 2025-10-17T23:45:01.2388131Z [36;1m  exit 1[0m
 2025-10-17T23:45:01.2388291Z [36;1mfi[0m
 2025-10-17T23:45:01.2388447Z [36;1mcd ..[0m
+```
+
+---
+
+**For Perplexity:** Read this summary in the `logs/Error Summaries/` folder and suggest detailed fix steps.
