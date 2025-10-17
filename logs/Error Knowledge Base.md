@@ -3,11 +3,12 @@
 > **Purpose:** Track all build errors for FFmpeg Android ARM32
 > **AI:** Gemini 2.0 Flash with detail log analysis
 > **Storage:** All logs in `/logs/` folder (Perplexity-optimized)
-> **Total Errors:** 5
+> **Total Errors:** 6
 
 ## Quick Reference
 
 | ID | Error | Library | Version | Summary | Date |
+| ERROR-LASS-001 | Meson build failed: Value disabled is not boolean | libass | ver11 | [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver11 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver11 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Missing system font provider for libass compilation | libass | ver10 | [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver10 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver10 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Harfbuzz dependency not found for libass | libass | ver9 | [`Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Harfbuzz dependency not found for libass build. | libass | ver9 | [`Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run24 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run24 20251017.md) | 2025-10-17 |
@@ -99,6 +100,23 @@
 **🔍 Root Cause:** Libass requires a system font provider (DirectWrite, Core Text, or Fontconfig) to compile. None were found, and `-Drequire-system-font-provider=false` was not set.
 **🛠️ Fix Suggestion:** Install a system font provider like Fontconfig, DirectWrite (Windows), or Core Text (macOS). Alternatively, if you don't need a system font provider, set the Meson option `-Drequire-system-font-provider=false` during configuration. Ensure the necessary dependencies for the chosen font provider are also installed.
 **📝 Type:** `DEPENDENCY`
+
+---
+
+
+### 🔴 ERROR-LASS-001: Meson build failed: Value disabled is not boolean
+
+**📅 Date:** 2025-10-17
+**🔗 GitHub:** [Run #1](https://github.com/share-18001080/113/actions/runs/18592283653)
+**🎯 Library:** `libass`
+**🏷️ Version:** `ver11`
+**🤖 AI Confidence:** 95%
+**📄 Full Summary:** [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver11 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver11 run1 20251017.md)
+**📋 Detail Log:** [`meson-log ver11 run1.txt`](Detail Logs/meson-log ver11 run1.txt)
+**⚠️ Symptoms:** Build failure, Meson configuration error, Non-boolean value for boolean option
+**🔍 Root Cause:** The Meson build system expects a boolean value (true or false) for a configuration option, but it received 'disabled' instead. This likely indicates an incorrect configuration setting passed to Meson during the libass build process.
+**🛠️ Fix Suggestion:** Check the Meson configuration files (meson.build) and the arguments passed to Meson during the build process. Ensure that all boolean options are set to either 'true' or 'false'. Review the build scripts and environment variables to identify where the incorrect 'disabled' value is being set and correct it to a valid boolean value. Examine the meson-log.txt file for more detailed information about the configuration error.
+**📝 Type:** `CONFIGURE`
 
 ---
 
