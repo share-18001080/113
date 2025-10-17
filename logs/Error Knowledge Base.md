@@ -3,11 +3,12 @@
 > **Purpose:** Track all build errors for FFmpeg Android ARM32
 > **AI:** Gemini 2.0 Flash with detail log analysis
 > **Storage:** All logs in `/logs/` folder (Perplexity-optimized)
-> **Total Errors:** 4
+> **Total Errors:** 5
 
 ## Quick Reference
 
 | ID | Error | Library | Version | Summary | Date |
+| ERROR-001 | Missing system font provider for libass compilation | libass | ver10 | [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver10 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver10 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Harfbuzz dependency not found for libass | libass | ver9 | [`Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Harfbuzz dependency not found for libass build. | libass | ver9 | [`Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run24 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run24 20251017.md) | 2025-10-17 |
 | ERROR-001 | Harfbuzz dependency not found during libass build | libass | ver9 | [`Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run21 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS COMPLETELY FIXED - ver9-fixed run21 20251017.md) | 2025-10-17 |
@@ -80,6 +81,23 @@
 **⚠️ Symptoms:** Build fails during libass configuration, Meson reports 'Dependency "harfbuzz" not found'
 **🔍 Root Cause:** The build system (Meson) could not locate the harfbuzz library using pkg-config. This indicates that harfbuzz is either not installed, not configured correctly, or pkg-config is not finding it in the expected location.
 **🛠️ Fix Suggestion:** Install harfbuzz and ensure pkg-config can find it. Verify that the PKG_CONFIG_PATH environment variable includes the directory containing harfbuzz's .pc file. If harfbuzz is installed in a non-standard location, explicitly set PKG_CONFIG_PATH before running the build. Alternatively, provide harfbuzz's location directly to Meson if possible.
+**📝 Type:** `DEPENDENCY`
+
+---
+
+
+### 🔴 ERROR-001: Missing system font provider for libass compilation
+
+**📅 Date:** 2025-10-17
+**🔗 GitHub:** [Run #1](https://github.com/share-18001080/113/actions/runs/18591621474)
+**🎯 Library:** `libass`
+**🏷️ Version:** `ver10`
+**🤖 AI Confidence:** 90%
+**📄 Full Summary:** [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver10 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver10 run1 20251017.md)
+**📋 Detail Log:** [`meson-log ver10 run1.txt`](Detail Logs/meson-log ver10 run1.txt)
+**⚠️ Symptoms:** Compilation fails, Missing font provider
+**🔍 Root Cause:** Libass requires a system font provider (DirectWrite, Core Text, or Fontconfig) to compile. None were found, and `-Drequire-system-font-provider=false` was not set.
+**🛠️ Fix Suggestion:** Install a system font provider like Fontconfig, DirectWrite (Windows), or Core Text (macOS). Alternatively, if you don't need a system font provider, set the Meson option `-Drequire-system-font-provider=false` during configuration. Ensure the necessary dependencies for the chosen font provider are also installed.
 **📝 Type:** `DEPENDENCY`
 
 ---
