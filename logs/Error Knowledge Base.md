@@ -3,11 +3,12 @@
 > **Purpose:** Track all build errors for FFmpeg Android ARM32
 > **AI:** Gemini 2.0 Flash with detail log analysis
 > **Storage:** All logs in `/logs/` folder (Perplexity-optimized)
-> **Total Errors:** 9
+> **Total Errors:** 10
 
 ## Quick Reference
 
 | ID | Error | Library | Version | Summary | Date |
+| ERROR-001 | Không tìm thấy cross file android_cross.txt | libass | ver8 | [`Build FFmpeg Android ARM32 COMPLETE FIXED - All Libraries LibASS Working - ver8 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 COMPLETE FIXED - All Libraries LibASS Working - ver8 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Freetype library not found despite HB_HAVE_FREETYPE being set. | libass | ver14 | [`Build FFmpeg Android ARM32 Full Features LibSOXR Fixed Freetype2 Dependencies - ver14 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibSOXR Fixed Freetype2 Dependencies - ver14 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | freetype2 dependency not found | libass | ver13 | [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver13 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver13 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Invalid value for Fontconfig support option in Meson build. | libass | ver12 | [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver12 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver12 run1 20251017.md) | 2025-10-17 |
@@ -169,6 +170,22 @@
 **⚠️ Symptoms:** Build fails during CMake configuration., Freetype not found error message.
 **🔍 Root Cause:** The build system expects Freetype to be available because HB_HAVE_FREETYPE is enabled, but the Freetype library and include directories cannot be located by CMake.
 **🛠️ Fix Suggestion:** Ensure Freetype2 is installed and the CMAKE_PREFIX_PATH variable points to the Freetype2 installation directory. Alternatively, disable HB_HAVE_FREETYPE if Freetype is not intended to be used. Verify that FREETYPE_LIBRARY and FREETYPE_INCLUDE_DIRS are correctly set in CMake.
+**📝 Type:** `CONFIGURE`
+
+---
+
+
+### 🔴 ERROR-001: Không tìm thấy cross file android_cross.txt
+
+**📅 Date:** 2025-10-17
+**🔗 GitHub:** [Run #1](https://github.com/share-18001080/113/actions/runs/18605512062)
+**🎯 Library:** `libass`
+**🏷️ Version:** `ver8`
+**🤖 AI Confidence:** 90%
+**📄 Full Summary:** [`Build FFmpeg Android ARM32 COMPLETE FIXED - All Libraries LibASS Working - ver8 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 COMPLETE FIXED - All Libraries LibASS Working - ver8 run1 20251017.md)
+**⚠️ Symptoms:** Lỗi trong quá trình build HarfBuzz, Không tìm thấy file android_cross.txt
+**🔍 Root Cause:** Hệ thống không tìm thấy file cấu hình cross-compilation android_cross.txt cần thiết cho HarfBuzz.
+**🛠️ Fix Suggestion:** Đảm bảo file android_cross.txt tồn tại và đường dẫn đến file này được chỉ định chính xác trong quá trình cấu hình HarfBuzz. Kiểm tra xem biến môi trường có liên quan đến cross-compilation đã được thiết lập đúng chưa. Có thể cần cập nhật hoặc tạo file cross-compilation cho Android.
 **📝 Type:** `CONFIGURE`
 
 ---
