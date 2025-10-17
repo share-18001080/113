@@ -3,11 +3,12 @@
 > **Purpose:** Track all build errors for FFmpeg Android ARM32
 > **AI:** Gemini 2.0 Flash with detail log analysis
 > **Storage:** All logs in `/logs/` folder (Perplexity-optimized)
-> **Total Errors:** 10
+> **Total Errors:** 11
 
 ## Quick Reference
 
 | ID | Error | Library | Version | Summary | Date |
+| ERROR-HB001 | HarfBuzz compiler cannot compile programs | libass | unknown | [`Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver15 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver15 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Không tìm thấy cross file android_cross.txt | libass | ver8 | [`Build FFmpeg Android ARM32 COMPLETE FIXED - All Libraries LibASS Working - ver8 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 COMPLETE FIXED - All Libraries LibASS Working - ver8 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Freetype library not found despite HB_HAVE_FREETYPE being set. | libass | ver14 | [`Build FFmpeg Android ARM32 Full Features LibSOXR Fixed Freetype2 Dependencies - ver14 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibSOXR Fixed Freetype2 Dependencies - ver14 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | freetype2 dependency not found | libass | ver13 | [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver13 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver13 run1 20251017.md) | 2025-10-17 |
@@ -186,6 +187,23 @@
 **⚠️ Symptoms:** Lỗi trong quá trình build HarfBuzz, Không tìm thấy file android_cross.txt
 **🔍 Root Cause:** Hệ thống không tìm thấy file cấu hình cross-compilation android_cross.txt cần thiết cho HarfBuzz.
 **🛠️ Fix Suggestion:** Đảm bảo file android_cross.txt tồn tại và đường dẫn đến file này được chỉ định chính xác trong quá trình cấu hình HarfBuzz. Kiểm tra xem biến môi trường có liên quan đến cross-compilation đã được thiết lập đúng chưa. Có thể cần cập nhật hoặc tạo file cross-compilation cho Android.
+**📝 Type:** `CONFIGURE`
+
+---
+
+
+### 🔴 ERROR-HB001: HarfBuzz compiler cannot compile programs
+
+**📅 Date:** 2025-10-17
+**🔗 GitHub:** [Run #1](https://github.com/share-18001080/113/actions/runs/18606054784)
+**🎯 Library:** `libass`
+**🏷️ Version:** `unknown`
+**🤖 AI Confidence:** 95%
+**📄 Full Summary:** [`Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver15 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver15 run1 20251017.md)
+**📋 Detail Log:** [`meson-log unknown run1.txt`](Detail Logs/meson-log unknown run1.txt)
+**⚠️ Symptoms:** Build process fails, HarfBuzz compilation error
+**🔍 Root Cause:** The specified compiler for the target architecture (ARM32) is unable to compile C programs. This could be due to missing dependencies, incorrect compiler path, or a misconfigured environment.
+**🛠️ Fix Suggestion:** Verify the NDK installation and configuration. Ensure the correct compiler path is specified in the Meson cross-compilation file. Check if the necessary dependencies for the ARM32 compiler are installed. Try a different NDK version.
 **📝 Type:** `CONFIGURE`
 
 ---
