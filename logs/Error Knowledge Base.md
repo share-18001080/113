@@ -3,11 +3,12 @@
 > **Purpose:** Track all build errors for FFmpeg Android ARM32
 > **AI:** Gemini 2.0 Flash with detail log analysis
 > **Storage:** All logs in `/logs/` folder (Perplexity-optimized)
-> **Total Errors:** 12
+> **Total Errors:** 13
 
 ## Quick Reference
 
 | ID | Error | Library | Version | Summary | Date |
+| ERROR-001 | HarfBuzz missing during LibASS build | libass | unknown | [`Build FFmpeg Android ARM32 ULTIMATE COMPLETE - Ver15 Fixed All Errors run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE COMPLETE - Ver15 Fixed All Errors run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | FreeType2 build failed with exit code 8. | libass | ver8 | [`Build FFmpeg Android ARM32 ULTIMATE FIXED - All Libraries LibASS LibSOXR - ver8-ultra run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE FIXED - All Libraries LibASS LibSOXR - ver8-ultra run1 20251017.md) | 2025-10-17 |
 | ERROR-HB001 | HarfBuzz compiler cannot compile programs | libass | unknown | [`Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver15 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE COMPLETE FIXED - All Libraries Ver15 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Không tìm thấy cross file android_cross.txt | libass | ver8 | [`Build FFmpeg Android ARM32 COMPLETE FIXED - All Libraries LibASS Working - ver8 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 COMPLETE FIXED - All Libraries LibASS Working - ver8 run1 20251017.md) | 2025-10-17 |
@@ -221,6 +222,22 @@
 **⚠️ Symptoms:** FreeType2 build failure, libass build failure, Exit code 8 during build
 **🔍 Root Cause:** The FreeType2 build process encountered an error, indicated by the exit code 8. This likely stems from configuration issues, missing dependencies, or build script errors during the compilation of FreeType2, a critical dependency for libass.
 **🛠️ Fix Suggestion:** Examine the FreeType2 build logs for specific error messages. Ensure all build dependencies are installed and correctly configured. Verify the FreeType2 build script is compatible with the build environment. Try updating or downgrading FreeType2 version. Check for conflicting libraries or tools. Review the build configuration options for FreeType2 and adjust them as needed. Consider using a pre-built FreeType2 library if available.
+**📝 Type:** `DEPENDENCY`
+
+---
+
+
+### 🔴 ERROR-001: HarfBuzz missing during LibASS build
+
+**📅 Date:** 2025-10-17
+**🔗 GitHub:** [Run #1](https://github.com/share-18001080/113/actions/runs/18607226090)
+**🎯 Library:** `libass`
+**🏷️ Version:** `unknown`
+**🤖 AI Confidence:** 90%
+**📄 Full Summary:** [`Build FFmpeg Android ARM32 ULTIMATE COMPLETE - Ver15 Fixed All Errors run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 ULTIMATE COMPLETE - Ver15 Fixed All Errors run1 20251017.md)
+**⚠️ Symptoms:** Build fails, HarfBuzz missing error message
+**🔍 Root Cause:** The LibASS build process requires the HarfBuzz library, but it is not found in the system or specified dependency paths.
+**🛠️ Fix Suggestion:** Install HarfBuzz and ensure it is discoverable by the build system. This might involve installing the HarfBuzz development package (e.g., libharfbuzz-dev on Debian/Ubuntu) and setting the PKG_CONFIG_PATH environment variable to point to the directory containing the harfbuzz.pc file. Verify that the HarfBuzz version is compatible with LibASS.
 **📝 Type:** `DEPENDENCY`
 
 ---
