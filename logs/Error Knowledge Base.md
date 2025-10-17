@@ -3,11 +3,12 @@
 > **Purpose:** Track all build errors for FFmpeg Android ARM32
 > **AI:** Gemini 2.0 Flash with detail log analysis
 > **Storage:** All logs in `/logs/` folder (Perplexity-optimized)
-> **Total Errors:** 8
+> **Total Errors:** 9
 
 ## Quick Reference
 
 | ID | Error | Library | Version | Summary | Date |
+| ERROR-001 | Freetype library not found despite HB_HAVE_FREETYPE being set. | libass | ver14 | [`Build FFmpeg Android ARM32 Full Features LibSOXR Fixed Freetype2 Dependencies - ver14 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibSOXR Fixed Freetype2 Dependencies - ver14 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | freetype2 dependency not found | libass | ver13 | [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver13 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver13 run1 20251017.md) | 2025-10-17 |
 | ERROR-001 | Invalid value for Fontconfig support option in Meson build. | libass | ver12 | [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver12 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver12 run1 20251017.md) | 2025-10-17 |
 | ERROR-LASS-001 | Meson build failed: Value disabled is not boolean | libass | ver11 | [`Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver11 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibASS Harfbuzz COMPLETELY FIXED - ver11 run1 20251017.md) | 2025-10-17 |
@@ -153,6 +154,22 @@
 **🔍 Root Cause:** The build process requires the freetype2 library, but it could not be found by pkg-config or CMake.
 **🛠️ Fix Suggestion:** Install the freetype2 development package using your system's package manager. For Debian/Ubuntu, use 'sudo apt-get install libfreetype6-dev'. Ensure pkg-config can find the library by setting PKG_CONFIG_PATH if necessary. Verify freetype2 is correctly installed and configured.
 **📝 Type:** `DEPENDENCY`
+
+---
+
+
+### 🔴 ERROR-001: Freetype library not found despite HB_HAVE_FREETYPE being set.
+
+**📅 Date:** 2025-10-17
+**🔗 GitHub:** [Run #1](https://github.com/share-18001080/113/actions/runs/18603721483)
+**🎯 Library:** `libass`
+**🏷️ Version:** `ver14`
+**🤖 AI Confidence:** 90%
+**📄 Full Summary:** [`Build FFmpeg Android ARM32 Full Features LibSOXR Fixed Freetype2 Dependencies - ver14 run1 20251017.md`](Error Summaries/Build FFmpeg Android ARM32 Full Features LibSOXR Fixed Freetype2 Dependencies - ver14 run1 20251017.md)
+**⚠️ Symptoms:** Build fails during CMake configuration., Freetype not found error message.
+**🔍 Root Cause:** The build system expects Freetype to be available because HB_HAVE_FREETYPE is enabled, but the Freetype library and include directories cannot be located by CMake.
+**🛠️ Fix Suggestion:** Ensure Freetype2 is installed and the CMAKE_PREFIX_PATH variable points to the Freetype2 installation directory. Alternatively, disable HB_HAVE_FREETYPE if Freetype is not intended to be used. Verify that FREETYPE_LIBRARY and FREETYPE_INCLUDE_DIRS are correctly set in CMake.
+**📝 Type:** `CONFIGURE`
 
 ---
 
