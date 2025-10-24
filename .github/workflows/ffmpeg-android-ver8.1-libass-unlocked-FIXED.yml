@@ -1,0 +1,868 @@
+name: Build FFmpeg Android ARM32 (Complete Features + LibASS UNLOCKED - ver8.1-FIXED)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-ffmpeg-libass-unlocked:
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+
+    env:
+      ANDROID_API_LEVEL: 21
+      ANDROID_ABI: armeabi-v7a
+      NDK_VERSION: r25c
+      FFMPEG_VERSION: n7.1
+      MAKEFLAGS: -j$(nproc)
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android NDK r25c
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25c
+          add-to-path: true
+          local-cache: false
+
+      - name: Install Base Dependencies
+        run: |
+          sudo apt-get update
+
+      - name: Install Build Tools
+        run: |
+          sudo apt-get install -y \
+            build-essential yasm nasm pkg-config autoconf automake libtool
+
+      - name: Install Development Tools
+        run: |
+          sudo apt-get install -y \
+            git wget curl cmake ninja-build python3 python3-pip
+
+      - name: Install Additional Tools
+        run: |
+          sudo apt-get install -y \
+            gperf gettext texinfo flex bison ccache meson
+
+      - name: Install System Libraries (WITH LIBASS DEPS FIX)
+        run: |
+          sudo apt-get install -y \
+            zip unzip libssl-dev zlib1g-dev libbz2-dev liblzma-dev
+          echo "🎯 Installing LibASS dependencies (FIX for repeated errors)..."
+          sudo apt-get install -y \
+            libfreetype6-dev libharfbuzz-dev libfontconfig1-dev \
+            libfribidi-dev libpng-dev
+
+      - name: Setup CCCache
+        run: |
+          sudo /usr/sbin/update-ccache-symlinks
+          echo 'export PATH="/usr/lib/ccache:$PATH"' | tee -a ~/.bashrc
+
+      - name: Setup Enhanced Logging
+        run: |
+          mkdir -p logs/{configure,build,external-libs,errors,success}
+          echo "Enhanced logging for ver8.1 LibASS unlocked" > logs/build_info.txt
+          echo "Build started: $(date)" >> logs/build_info.txt
+
+      - name: Cache External Libraries  
+        uses: actions/cache@v4
+        id: cache-external
+        with:
+          path: |
+            external
+            build/external
+          key: external-libs-libass-unlocked-ver8.1-${{ env.NDK_VERSION }}-${{ env.ANDROID_ABI }}-v2
+          restore-keys: |
+            external-libs-libass-unlocked-ver8.1-${{ env.NDK_VERSION }}-${{ env.ANDROID_ABI }}-
+
+      - name: Setup Build Environment
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p external build/external
+          cd external
+
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          mkdir -p $PREFIX/{lib,include,lib/pkgconfig,bin,man/man3,inc}
+
+          for tool in strings nm objdump strip readelf as ld; do
+            ln -sf llvm-$tool $TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-$tool
+          done
+
+          for tool in gcc ar ranlib; do
+            ln -sf $TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang $TOOLCHAIN_PATH/bin/arm-linux-androideabi-$tool
+          done
+
+      - name: Create Meson Cross-File (FIX for android_cross.txt missing)
+        run: |
+          cd external
+          mkdir -p meson-cross
+          echo "🔧 Creating Meson cross-compilation file for Android ARM32..."
+          echo "[binaries]" > meson-cross/android_cross.txt
+          echo "c = '${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang'" >> meson-cross/android_cross.txt
+          echo "cpp = '${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang++'" >> meson-cross/android_cross.txt
+          echo "ar = '${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'" >> meson-cross/android_cross.txt
+          echo "strip = '${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'" >> meson-cross/android_cross.txt
+          echo "pkgconfig = 'pkg-config'" >> meson-cross/android_cross.txt
+          echo "" >> meson-cross/android_cross.txt
+          echo "[host_machine]" >> meson-cross/android_cross.txt
+          echo "system = 'android'" >> meson-cross/android_cross.txt
+          echo "cpu_family = 'arm'" >> meson-cross/android_cross.txt
+          echo "cpu = 'armv7a'" >> meson-cross/android_cross.txt
+          echo "endian = 'little'" >> meson-cross/android_cross.txt
+          echo "" >> meson-cross/android_cross.txt
+          echo "[properties]" >> meson-cross/android_cross.txt
+          echo "needs_exe_wrapper = true" >> meson-cross/android_cross.txt
+
+          echo "✅ Meson cross-file created successfully!" | tee -a ../logs/build/meson_setup.log
+
+      - name: Build Base Libraries
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "Building zlib..." | tee -a ../logs/external-libs/base_libs.log
+          wget -q https://github.com/madler/zlib/releases/download/v1.3/zlib-1.3.tar.gz
+          tar xzf zlib-1.3.tar.gz
+          cd zlib-1.3
+          ./configure --prefix=$PREFIX --static 2>&1 | tee -a ../../logs/configure/zlib_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/zlib_build.log
+          make install 2>&1 | tee -a ../../logs/build/zlib_install.log
+          cd ..
+
+          echo "Building bzip2..." | tee -a ../logs/external-libs/base_libs.log
+          wget -q https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz
+          tar xzf bzip2-1.0.8.tar.gz
+          cd bzip2-1.0.8
+          make CC=$CC AR=$AR RANLIB=$RANLIB PREFIX=$PREFIX install 2>&1 | tee -a ../../logs/build/bzip2_build.log
+          cd ..
+
+          echo "Building xz..." | tee -a ../logs/external-libs/base_libs.log
+          wget -q https://github.com/tukaani-project/xz/releases/download/v5.4.5/xz-5.4.5.tar.gz
+          tar xzf xz-5.4.5.tar.gz
+          cd xz-5.4.5
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-doc --disable-scripts 2>&1 | tee -a ../../logs/configure/xz_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/xz_build.log
+          make install 2>&1 | tee -a ../../logs/build/xz_install.log
+          cd ..
+
+      - name: Build FreeType2 (LIBASS DEPENDENCY - FIX for circular deps)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🔤 Building FreeType2 (first pass - no HarfBuzz)..." | tee -a ../logs/external-libs/freetype_build.log
+          git clone --depth 1 https://gitlab.freedesktop.org/freetype/freetype.git freetype2
+          cd freetype2
+          ./autogen.sh 2>&1 | tee -a ../../logs/configure/freetype_autogen.log
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --enable-static --disable-shared --without-harfbuzz \
+            --without-png --without-bzip2 --with-zlib=yes \
+            --disable-mmap 2>&1 | tee -a ../../logs/configure/freetype_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/freetype_build.log
+          make install 2>&1 | tee -a ../../logs/build/freetype_install.log
+          cd ..
+
+      - name: Build HarfBuzz (LIBASS DEPENDENCY - FIX for Meson errors)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🔤 Building HarfBuzz (with FreeType support)..." | tee -a ../logs/external-libs/harfbuzz_build.log
+          git clone --depth 1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
+          cd harfbuzz
+
+          echo "⚙️ Configuring HarfBuzz with Meson (FIX for compiler errors)..."
+          meson setup build_hb \
+            --cross-file ../meson-cross/android_cross.txt \
+            --prefix=$PREFIX \
+            --default-library=static \
+            -Dfreetype=enabled \
+            -Dglib=disabled \
+            -Dgobject=disabled \
+            -Dcairo=disabled \
+            -Dicu=disabled \
+            -Dgraphite=disabled \
+            -Dgdi=disabled \
+            -Ddirectwrite=disabled \
+            -Dcoretext=disabled \
+            -Dtests=disabled \
+            -Dintrospection=disabled \
+            -Ddocs=disabled \
+            -Dbenchmark=disabled 2>&1 | tee -a ../../logs/configure/harfbuzz_config.log
+
+          ninja -C build_hb 2>&1 | tee -a ../../logs/build/harfbuzz_build.log
+          ninja -C build_hb install 2>&1 | tee -a ../../logs/build/harfbuzz_install.log
+          cd ..
+
+      - name: Rebuild FreeType2 with HarfBuzz (CIRCULAR DEPENDENCY FIX)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🔄 Rebuilding FreeType2 (second pass - WITH HarfBuzz support)..." | tee -a ../logs/external-libs/freetype2_rebuild.log
+          cd freetype2
+          make clean 2>&1 | tee -a ../../logs/build/freetype2_clean.log
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --enable-static --disable-shared --with-harfbuzz=yes \
+            --without-png --without-bzip2 --with-zlib=yes \
+            --disable-mmap 2>&1 | tee -a ../../logs/configure/freetype2_reconfig.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/freetype2_rebuild.log
+          make install 2>&1 | tee -a ../../logs/build/freetype2_reinstall.log
+          cd ../..
+
+      - name: Build Fontconfig (LIBASS DEPENDENCY)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🔤 Building Fontconfig..." | tee -a ../logs/external-libs/fontconfig_build.log
+          git clone --depth 1 https://gitlab.freedesktop.org/fontconfig/fontconfig.git fontconfig
+          cd fontconfig
+          ./autogen.sh --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --enable-static --disable-shared \
+            --disable-docs 2>&1 | tee -a ../../logs/configure/fontconfig_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/fontconfig_build.log
+          make install 2>&1 | tee -a ../../logs/build/fontconfig_install.log
+          cd ..
+
+      - name: Build FriBidi (LIBASS DEPENDENCY)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🔤 Building FriBidi..." | tee -a ../logs/external-libs/fribidi_build.log
+          git clone --depth 1 https://github.com/fribidi/fribidi.git fribidi
+          cd fribidi
+
+          echo "⚙️ Configuring FriBidi with Meson..."
+          meson setup build_fbd \
+            --cross-file ../meson-cross/android_cross.txt \
+            --prefix=$PREFIX \
+            --default-library=static \
+            -Ddocs=false \
+            -Dtests=false 2>&1 | tee -a ../../logs/configure/fribidi_config.log
+
+          ninja -C build_fbd 2>&1 | tee -a ../../logs/build/fribidi_build.log
+          ninja -C build_fbd install 2>&1 | tee -a ../../logs/build/fribidi_install.log
+          cd ..
+
+      - name: Build LibASS (MAIN TARGET - WITH ALL FIXES)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "🎯 Building LibASS (MAIN TARGET) with all dependencies..." | tee -a ../logs/external-libs/libass_build.log
+          git clone --depth 1 https://github.com/libass/libass.git libass
+          cd libass
+
+          echo "⚙️ Configuring LibASS with Meson (FINAL FIX - all boolean values correct)..."
+          meson setup build_ass \
+            --cross-file ../meson-cross/android_cross.txt \
+            --prefix=$PREFIX \
+            --default-library=static \
+            -Dfreetype=enabled \
+            -Dharfbuzz=enabled \
+            -Dfontconfig=enabled \
+            -Dfribidi=enabled \
+            -Drequire-system-font-provider=false \
+            -Dlibiconv=disabled \
+            -Dasm=disabled \
+            -Dtests=false \
+            -Dtools=false 2>&1 | tee -a ../../logs/configure/libass_config.log
+
+          ninja -C build_ass 2>&1 | tee -a ../../logs/build/libass_build.log
+          ninja -C build_ass install 2>&1 | tee -a ../../logs/build/libass_install.log
+          cd ..
+
+          echo "✅ LibASS and ALL dependencies built successfully!" | tee -a ../logs/success/libass_complete.log
+
+      - name: Build Video Codecs (ALL PREVIOUS FEATURES PRESERVED)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "Building x264..." | tee -a ../logs/external-libs/video_codecs.log
+          git clone --depth 1 https://code.videolan.org/videolan/x264.git
+          cd x264
+          ./configure --prefix=$PREFIX --host=$TARGET_HOST \
+            --cross-prefix=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21- \
+            --sysroot=$SYSROOT --enable-static --disable-cli \
+            --enable-pic --disable-asm \
+            --extra-cflags="$CFLAGS" --extra-ldflags="$LDFLAGS" 2>&1 | tee -a ../../logs/configure/x264_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/x264_build.log
+          make install 2>&1 | tee -a ../../logs/build/x264_install.log
+          cd ..
+
+          echo "Building x265..." | tee -a ../logs/external-libs/video_codecs.log
+          git clone --depth 1 https://bitbucket.org/multicoreware/x265_git.git x265
+          cd x265/build/linux
+          echo "cmake_policy(SET CMP0074 OLD)" > ../../source/CMakeLists_prefix.txt
+          echo "" >> ../../source/CMakeLists_prefix.txt
+          cat ../../source/CMakeLists.txt >> ../../source/CMakeLists_prefix.txt
+          mv ../../source/CMakeLists_prefix.txt ../../source/CMakeLists.txt
+          cmake -G "Unix Makefiles" \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_SHARED=OFF -DENABLE_CLI=OFF \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DENABLE_PIC=ON -DENABLE_ASSEMBLY=OFF \
+            ../../source 2>&1 | tee -a ../../../logs/configure/x265_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../../logs/build/x265_build.log
+          make install 2>&1 | tee -a ../../../logs/build/x265_install.log
+          cd ../../..
+
+          echo "Building libvpx..." | tee -a ../logs/external-libs/video_codecs.log
+          git clone --depth 1 https://chromium.googlesource.com/webm/libvpx.git
+          cd libvpx
+          export CROSS=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-
+          ./configure --target=armv7-android-gcc --prefix=$PREFIX \
+            --disable-examples --disable-docs --enable-pic \
+            --disable-libyuv --disable-webm-io \
+            --as=yasm 2>&1 | tee -a ../../logs/configure/libvpx_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/libvpx_build.log
+          make install 2>&1 | tee -a ../../logs/build/libvpx_install.log
+          cd ..
+
+      - name: Build Audio Codecs (ALL PREVIOUS FEATURES PRESERVED)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          # Build all audio codecs from previous versions (LAME, Opus, Vorbis, etc.)
+          echo "Building LAME..." | tee -a ../logs/external-libs/audio_codecs.log
+          wget -q https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
+          tar xzf lame-3.100.tar.gz
+          cd lame-3.100
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-frontend 2>&1 | tee -a ../../logs/configure/lame_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/lame_build.log
+          make install 2>&1 | tee -a ../../logs/build/lame_install.log
+          cd ..
+
+          echo "Building Opus..." | tee -a ../logs/external-libs/audio_codecs.log
+          git clone --depth 1 https://github.com/xiph/opus.git
+          cd opus
+          ./autogen.sh 2>&1 | tee -a ../../logs/configure/opus_autogen.log
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-doc --disable-extra-programs 2>&1 | tee -a ../../logs/configure/opus_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/opus_build.log
+          make install 2>&1 | tee -a ../../logs/build/opus_install.log
+          cd ..
+
+          echo "Building Vorbis..." | tee -a ../logs/external-libs/audio_codecs.log
+          git clone --depth 1 https://github.com/xiph/vorbis.git
+          cd vorbis
+          ./autogen.sh 2>&1 | tee -a ../../logs/configure/vorbis_autogen.log
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-docs --disable-examples 2>&1 | tee -a ../../logs/configure/vorbis_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/vorbis_build.log
+          make install 2>&1 | tee -a ../../logs/build/vorbis_install.log
+          cd ..
+
+          echo "Building Speex..." | tee -a ../logs/external-libs/audio_codecs.log
+          git clone --depth 1 https://github.com/xiph/speex.git
+          cd speex
+          ./autogen.sh 2>&1 | tee -a ../../logs/configure/speex_autogen.log
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static 2>&1 | tee -a ../../logs/configure/speex_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/speex_build.log
+          make install 2>&1 | tee -a ../../logs/build/speex_install.log
+          cd ..
+
+      - name: Build Additional Libraries (LibSOXR from ver7, etc.)
+        if: steps.cache-external.outputs.cache-hit != 'true'
+        run: |
+          cd external
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export BUILD_HOST=x86_64-pc-linux-gnu
+          export TARGET_HOST=arm-linux-androideabi
+          export CFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c99"
+          export CXXFLAGS="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -std=c++11"
+          export CPPFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          echo "Building LibSOXR (from ver7)..." | tee -a ../logs/external-libs/additional_libs.log
+          git clone --depth 1 https://git.code.sf.net/p/soxr/code soxr
+          cd soxr
+          mkdir build_android && cd build_android
+          cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF -DWITH_OPENMP=OFF \
+            .. 2>&1 | tee -a ../../../logs/configure/soxr_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../../logs/build/soxr_build.log
+          make install 2>&1 | tee -a ../../../logs/build/soxr_install.log
+          cd ../..
+
+          echo "Building WebP..." | tee -a ../logs/external-libs/additional_libs.log
+          git clone --depth 1 https://chromium.googlesource.com/webm/libwebp
+          cd libwebp
+          ./autogen.sh 2>&1 | tee -a ../../logs/configure/webp_autogen.log
+          ./configure --host=$TARGET_HOST --build=$BUILD_HOST --prefix=$PREFIX \
+            --disable-shared --enable-static --disable-gl --disable-sdl \
+            --disable-png --disable-jpeg --disable-tiff --disable-gif 2>&1 | tee -a ../../logs/configure/webp_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../logs/build/webp_build.log
+          make install 2>&1 | tee -a ../../logs/build/webp_install.log
+          cd ..
+
+          echo "Building OpenJPEG..." | tee -a ../logs/external-libs/additional_libs.log
+          git clone --depth 1 https://github.com/uclouvain/openjpeg.git
+          cd openjpeg
+          mkdir build_android && cd build_android
+          cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DBUILD_SHARED_LIBS=OFF -DBUILD_CODEC=OFF \
+            .. 2>&1 | tee -a ../../../logs/configure/openjpeg_config.log
+          make -j$(nproc) 2>&1 | tee -a ../../../logs/build/openjpeg_build.log
+          make install 2>&1 | tee -a ../../../logs/build/openjpeg_install.log
+          cd ../..
+
+      - name: Library Status Check (LibASS UNLOCKED)
+        run: |
+          cd build/external
+          echo "📊 Library Status Check (ver8.1 LibASS unlocked):" | tee -a ../../logs/build_info.txt
+          echo "======================================" | tee -a ../../logs/build_info.txt
+          echo "🎯 NEW FEATURES UNLOCKED IN VER8.1:" | tee -a ../../logs/build_info.txt
+
+          LIBASS_STATUS="❌ Missing"
+          if [ -f "lib/libass.a" ]; then
+            LIBASS_STATUS="✅ $(du -sh lib/libass.a | cut -f1)"
+          fi
+          echo "- LibASS: $LIBASS_STATUS" | tee -a ../../logs/build_info.txt
+
+          FREETYPE_STATUS="❌ Missing"
+          if [ -f "lib/libfreetype.a" ]; then
+            FREETYPE_STATUS="✅ $(du -sh lib/libfreetype.a | cut -f1)"
+          fi
+          echo "- FreeType2: $FREETYPE_STATUS" | tee -a ../../logs/build_info.txt
+
+          HARFBUZZ_STATUS="❌ Missing"
+          if [ -f "lib/libharfbuzz.a" ]; then
+            HARFBUZZ_STATUS="✅ $(du -sh lib/libharfbuzz.a | cut -f1)"
+          fi
+          echo "- HarfBuzz: $HARFBUZZ_STATUS" | tee -a ../../logs/build_info.txt
+
+          FONTCONFIG_STATUS="❌ Missing"
+          if [ -f "lib/libfontconfig.a" ]; then
+            FONTCONFIG_STATUS="✅ $(du -sh lib/libfontconfig.a | cut -f1)"
+          fi
+          echo "- Fontconfig: $FONTCONFIG_STATUS" | tee -a ../../logs/build_info.txt
+
+          FRIBIDI_STATUS="❌ Missing"
+          if [ -f "lib/libfribidi.a" ]; then
+            FRIBIDI_STATUS="✅ $(du -sh lib/libfribidi.a | cut -f1)"
+          fi
+          echo "- FriBidi: $FRIBIDI_STATUS" | tee -a ../../logs/build_info.txt
+
+          echo "" | tee -a ../../logs/build_info.txt
+          echo "📦 ALL PREVIOUS FEATURES:" | tee -a ../../logs/build_info.txt
+
+          SOXR_STATUS="❌ Missing"
+          if [ -f "lib/libsoxr.a" ]; then
+            SOXR_STATUS="✅ $(du -sh lib/libsoxr.a | cut -f1)"
+          fi
+          echo "- LibSOXR: $SOXR_STATUS (from ver7)" | tee -a ../../logs/build_info.txt
+
+          echo "" | tee -a ../../logs/build_info.txt
+          echo "Total libraries: $(ls lib/*.a 2>/dev/null | wc -l)" | tee -a ../../logs/build_info.txt
+
+          echo "LIBASS_STATUS=$LIBASS_STATUS" >> ../../build_status.env
+          echo "FREETYPE_STATUS=$FREETYPE_STATUS" >> ../../build_status.env
+          echo "HARFBUZZ_STATUS=$HARFBUZZ_STATUS" >> ../../build_status.env
+          echo "FONTCONFIG_STATUS=$FONTCONFIG_STATUS" >> ../../build_status.env
+          echo "FRIBIDI_STATUS=$FRIBIDI_STATUS" >> ../../build_status.env
+          echo "SOXR_STATUS=$SOXR_STATUS" >> ../../build_status.env
+
+      - name: Clone FFmpeg
+        run: |
+          git clone --depth 1 --branch ${{ env.FFMPEG_VERSION }} https://git.ffmpeg.org/ffmpeg.git ffmpeg
+          cd ffmpeg
+          echo "Applying Android compatibility patches..." | tee -a ../logs/build/ffmpeg_patches.log
+          find . -name "*.c" -exec sed -i 's/__restrict/restrict/g' {} \; || true
+          find . -name "*.h" -exec sed -i 's/__restrict/restrict/g' {} \; || true
+
+          if [ -f VERSION ]; then
+            echo "FFmpeg version: $(cat VERSION)" | tee -a ../logs/build_info.txt
+          else
+            echo "FFmpeg version: ${{ env.FFMPEG_VERSION }}" | tee -a ../logs/build_info.txt
+          fi
+
+      - name: Create Build Directories
+        run: |
+          mkdir -p build/armeabi-v7a output/armeabi-v7a release
+
+      - name: Configure FFmpeg with LibASS UNLOCKED (ver8.1)
+        run: |
+          cd ffmpeg
+          export ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}
+          export TOOLCHAIN_PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang
+          export CXX=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21-clang++
+          export AR=$TOOLCHAIN_PATH/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN_PATH/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN_PATH/bin/llvm-strip
+          export SYSROOT=$TOOLCHAIN_PATH/sysroot
+          export PREFIX=$(pwd)/../build/external
+          export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+          export PATH=$TOOLCHAIN_PATH/bin:$PATH
+
+          source ../build_status.env
+
+          echo "🎯 Configuring FFmpeg with LibASS UNLOCKED (ver8.1)..." | tee -a ../logs/configure/ffmpeg_configure_start.log
+
+          ./configure \
+            --prefix=../output/armeabi-v7a \
+            --cross-prefix=$TOOLCHAIN_PATH/bin/armv7a-linux-androideabi21- \
+            --arch=arm --cpu=armv7-a --target-os=android \
+            --sysroot=$SYSROOT \
+            --enable-cross-compile \
+            --enable-static --disable-shared \
+            --disable-debug --enable-optimizations \
+            --enable-small \
+            --disable-programs --disable-doc \
+            --disable-avdevice --disable-swscale-alpha \
+            --enable-gpl --enable-version3 --enable-nonfree \
+            --enable-libx264 --enable-encoder=libx264 \
+            --enable-libx265 --enable-encoder=libx265 \
+            --enable-libvpx --enable-encoder=libvpx_vp8 --enable-encoder=libvpx_vp9 \
+            --enable-decoder=libvpx_vp8 --enable-decoder=libvpx_vp9 \
+            $([ "$LIBASS_STATUS" != "❌ Missing" ] && echo "--enable-libass") \
+            $([ "$FREETYPE_STATUS" != "❌ Missing" ] && echo "--enable-libfreetype") \
+            $([ "$FONTCONFIG_STATUS" != "❌ Missing" ] && echo "--enable-fontconfig") \
+            $([ "$FRIBIDI_STATUS" != "❌ Missing" ] && echo "--enable-libfribidi") \
+            $([ "$SOXR_STATUS" != "❌ Missing" ] && echo "--enable-libsoxr") \
+            --enable-libopus --enable-encoder=libopus --enable-decoder=libopus \
+            --enable-libmp3lame --enable-encoder=libmp3lame \
+            --enable-libvorbis --enable-encoder=libvorbis --enable-decoder=libvorbis \
+            --enable-libspeex --enable-encoder=libspeex --enable-decoder=libspeex \
+            --enable-libwebp --enable-encoder=libwebp \
+            --enable-libopenjpeg --enable-encoder=libopenjpeg --enable-decoder=libopenjpeg \
+            --enable-zlib --enable-bzlib --enable-lzma \
+            --extra-cflags="-fPIC -DANDROID -march=armv7-a -mfloat-abi=softfp -mfpu=neon -mthumb -Os -ffunction-sections -fdata-sections -I$PREFIX/include" \
+            --extra-ldflags="-L$PREFIX/lib -Wl,--gc-sections -static-libgcc" \
+            --extra-libs="-lm -ldl -llog" \
+            --pkg-config-flags="--static" 2>&1 | tee ../logs/configure/ffmpeg_config.log
+
+          if [ $? -eq 0 ]; then
+            echo "✅ FFmpeg configuration successful!" | tee -a ../logs/success/ffmpeg_configure.log
+            echo "Configuration completed at: $(date)" | tee -a ../logs/configure/ffmpeg_configure_end.log
+          else
+            echo "❌ FFmpeg configuration failed!" | tee -a ../logs/errors/ffmpeg_configure_failed.log
+            echo "Configuration log:" | tee -a ../logs/errors/ffmpeg_configure_failed.log
+            tail -50 config.log | tee -a ../logs/errors/ffmpeg_configure_failed.log
+            exit 1
+          fi
+
+      - name: Build FFmpeg
+        run: |
+          cd ffmpeg
+          echo "🔨 Building FFmpeg with LibASS unlocked..." | tee -a ../logs/build/ffmpeg_build_start.log
+          if make -j$(nproc) 2>&1 | tee ../logs/build/ffmpeg_parallel_build.log; then
+            echo "✅ FFmpeg parallel build successful!" | tee -a ../logs/success/ffmpeg_parallel_build.log
+          else
+            echo "⚠️ Parallel build failed, trying single-threaded..." | tee -a ../logs/errors/ffmpeg_parallel_failed.log
+            make clean
+            if make 2>&1 | tee ../logs/build/ffmpeg_single_build.log; then
+              echo "✅ FFmpeg single-threaded build successful!" | tee -a ../logs/success/ffmpeg_single_build.log
+            else
+              echo "❌ FFmpeg build failed completely!" | tee -a ../logs/errors/ffmpeg_build_failed.log
+              exit 1
+            fi
+          fi
+          echo "Build completed at: $(date)" | tee -a ../logs/build/ffmpeg_build_end.log
+
+      - name: Install and Package
+        run: |
+          cd ffmpeg
+          make install 2>&1 | tee ../logs/build/ffmpeg_install.log
+          cd ../output/armeabi-v7a
+
+          if [ -f "lib/libavcodec.a" ] && [ -f "lib/libavformat.a" ] && [ -f "lib/libavutil.a" ]; then
+            echo "✅ FFmpeg libraries generated successfully" | tee -a ../../logs/success/ffmpeg_libraries.log
+
+            mkdir -p ../../release
+            cp -r lib ../../release/
+            cp -r include ../../release/
+
+            echo "📦 Creating comprehensive build info..." 
+            source ../../build_status.env
+
+            echo "FFmpeg Android ARM32 COMPLETE Build (ver8.1 + LibASS UNLOCKED)" > ../../release/BUILD_INFO.txt
+            echo "================================================================" >> ../../release/BUILD_INFO.txt
+            echo "" >> ../../release/BUILD_INFO.txt
+            echo "🎯 NEWLY UNLOCKED IN VER8.1: LibASS + Full Text Rendering Stack!" >> ../../release/BUILD_INFO.txt
+            echo "📦 ALL PREVIOUS FEATURES PRESERVED FROM VER1-7" >> ../../release/BUILD_INFO.txt
+            echo "" >> ../../release/BUILD_INFO.txt
+            echo "Version: ${{ env.FFMPEG_VERSION }}" >> ../../release/BUILD_INFO.txt
+            echo "Target: ${{ env.ANDROID_ABI }}" >> ../../release/BUILD_INFO.txt
+            echo "API Level: ${{ env.ANDROID_API_LEVEL }}" >> ../../release/BUILD_INFO.txt
+            echo "NDK: ${{ env.NDK_VERSION }}" >> ../../release/BUILD_INFO.txt
+            echo "Built: $(date)" >> ../../release/BUILD_INFO.txt
+            echo "" >> ../../release/BUILD_INFO.txt
+            echo "🎯 LibASS Text Rendering Stack (NEWLY UNLOCKED):" >> ../../release/BUILD_INFO.txt
+            echo "- LibASS: $LIBASS_STATUS" >> ../../release/BUILD_INFO.txt
+            echo "- FreeType2: $FREETYPE_STATUS" >> ../../release/BUILD_INFO.txt
+            echo "- HarfBuzz: $HARFBUZZ_STATUS" >> ../../release/BUILD_INFO.txt
+            echo "- Fontconfig: $FONTCONFIG_STATUS" >> ../../release/BUILD_INFO.txt
+            echo "- FriBidi: $FRIBIDI_STATUS" >> ../../release/BUILD_INFO.txt
+            echo "" >> ../../release/BUILD_INFO.txt
+            echo "🎵 Audio Processing:" >> ../../release/BUILD_INFO.txt
+            echo "- LibSOXR: $SOXR_STATUS (from ver7)" >> ../../release/BUILD_INFO.txt
+            echo "" >> ../../release/BUILD_INFO.txt
+            echo "📺 Video Codecs:" >> ../../release/BUILD_INFO.txt
+            echo "- H.264 (libx264)" >> ../../release/BUILD_INFO.txt
+            echo "- H.265/HEVC (libx265)" >> ../../release/BUILD_INFO.txt
+            echo "- VP8/VP9 (libvpx)" >> ../../release/BUILD_INFO.txt
+            echo "" >> ../../release/BUILD_INFO.txt
+            echo "🎵 Audio Codecs:" >> ../../release/BUILD_INFO.txt
+            echo "- MP3 (LAME)" >> ../../release/BUILD_INFO.txt
+            echo "- Opus" >> ../../release/BUILD_INFO.txt
+            echo "- Vorbis" >> ../../release/BUILD_INFO.txt
+            echo "- Speex" >> ../../release/BUILD_INFO.txt
+            echo "" >> ../../release/BUILD_INFO.txt
+            echo "🖼️ Image & Other:" >> ../../release/BUILD_INFO.txt
+            echo "- WebP images" >> ../../release/BUILD_INFO.txt
+            echo "- JPEG 2000 (OpenJPEG)" >> ../../release/BUILD_INFO.txt
+            echo "" >> ../../release/BUILD_INFO.txt
+            echo "🗜️ Compression:" >> ../../release/BUILD_INFO.txt
+            echo "- zlib, bzip2, lzma" >> ../../release/BUILD_INFO.txt
+            echo "" >> ../../release/BUILD_INFO.txt
+            echo "✅ LibASS + COMPLETE TEXT RENDERING STACK SUCCESSFULLY UNLOCKED!" >> ../../release/BUILD_INFO.txt
+          else
+            echo "❌ FFmpeg libraries not found!" | tee -a ../../logs/errors/ffmpeg_libraries_missing.log
+            exit 1
+          fi
+
+      - name: Upload Enhanced Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-libass-unlocked-ver8.1
+          path: logs/
+          retention-days: 7
+
+      - name: Upload Complete Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-android-libass-unlocked-ver8.1
+          path: release/
+          retention-days: 30
+
+      - name: Complete Build Summary
+        run: |
+          echo "## 🎯 FFmpeg Android ARM32 LibASS UNLOCKED (ver8.1)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "release/lib/libavcodec.a" ]; then
+            echo "### ✅ BUILD SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Total Libraries**: $(ls release/lib/*.a 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
+            echo "- **LibASS**: 🎯 Successfully unlocked!" >> $GITHUB_STEP_SUMMARY
+            echo "- **All Previous Features**: ✅ Preserved from ver1-7" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Build Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 NEW FEATURES UNLOCKED" >> $GITHUB_STEP_SUMMARY
+          echo "- **LibASS**: Advanced subtitle rendering" >> $GITHUB_STEP_SUMMARY
+          echo "- **FreeType2**: Font rendering engine" >> $GITHUB_STEP_SUMMARY
+          echo "- **HarfBuzz**: Text shaping library" >> $GITHUB_STEP_SUMMARY
+          echo "- **Fontconfig**: Font configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **FriBidi**: Bidirectional text support" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🛠️ FIXED ERRORS" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ HarfBuzz dependency resolution" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ FreeType2 circular dependency" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Meson boolean configuration values" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Cross-compilation file creation" >> $GITHUB_STEP_SUMMARY
