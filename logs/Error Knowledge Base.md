@@ -3,11 +3,12 @@
 > **Purpose:** Track all build errors for FFmpeg Android ARM32
 > **AI:** Gemini 2.0 Flash with detail log analysis
 > **Storage:** All logs in `/logs/` folder (Perplexity-optimized)
-> **Total Errors:** 19
+> **Total Errors:** 20
 
 ## Quick Reference
 
 | ID | Error | Library | Version | Summary | Date |
+| ERROR-001 | CMake configuration failed during x265 build. | libass | ver8 | [`Build FFmpeg Android ARM32 LibASS ULTIMATE UNLOCKED - ver8 run1 20251024.md`](Error Summaries/Build FFmpeg Android ARM32 LibASS ULTIMATE UNLOCKED - ver8 run1 20251024.md) | 2025-10-24 |
 | ERROR-001 | CMake Deprecation Warning: CMake < 3.10 compatibility removal. | libass | ver8 | [`Build FFmpeg Android ARM32 Complete Features LibASS UNLOCKED - ver8-Enhanced run1 20251024.md`](Error Summaries/Build FFmpeg Android ARM32 Complete Features LibASS UNLOCKED - ver8-Enhanced run1 20251024.md) | 2025-10-24 |
 | ERROR-001 | CMake Deprecation Warning: CMake < 3.10 compatibility removed. | libass | ver8 | [`Build FFmpeg Android ARM32 Complete Features LibASS UNLOCKED - ver8 run1 20251024.md`](Error Summaries/Build FFmpeg Android ARM32 Complete Features LibASS UNLOCKED - ver8 run1 20251024.md) | 2025-10-24 |
 | ERROR-001 | CMake Deprecation Warning: CMake < 3.10 compatibility removed. | libass | ver8 | [`Build FFmpeg Android ARM32 Complete Features LibASS UNLOCKED - ver8 1-FIXED run1 20251024.md`](Error Summaries/Build FFmpeg Android ARM32 Complete Features LibASS UNLOCKED - ver8 1-FIXED run1 20251024.md) | 2025-10-24 |
@@ -342,6 +343,22 @@
 **⚠️ Symptoms:** CMake Deprecation Warning during configuration.
 **🔍 Root Cause:** The CMake version used is older than 3.10, and future versions of CMake will remove compatibility with versions older than 3.10. The project needs to be updated to use a newer CMake version or adjust the CMakeLists.txt file to be compatible with newer CMake policies.
 **🛠️ Fix Suggestion:** Update the CMake version used for building the project to 3.10 or higher. Alternatively, modify the CMakeLists.txt file to be compatible with newer CMake policies by updating the VERSION argument in cmake_minimum_required() or using the <min>...<max> syntax. This ensures compatibility with future CMake versions and avoids potential build failures.
+**📝 Type:** `CONFIGURE`
+
+---
+
+
+### 🔴 ERROR-001: CMake configuration failed during x265 build.
+
+**📅 Date:** 2025-10-24
+**🔗 GitHub:** [Run #1](https://github.com/share-18001080/113/actions/runs/18772295057)
+**🎯 Library:** `libass`
+**🏷️ Version:** `ver8`
+**🤖 AI Confidence:** 90%
+**📄 Full Summary:** [`Build FFmpeg Android ARM32 LibASS ULTIMATE UNLOCKED - ver8 run1 20251024.md`](Error Summaries/Build FFmpeg Android ARM32 LibASS ULTIMATE UNLOCKED - ver8 run1 20251024.md)
+**⚠️ Symptoms:** Build process fails, CMake configuration errors, x265 build failure
+**🔍 Root Cause:** The CMake configuration process for x265 failed, likely due to an issue with the CMakeLists.txt file or the build environment. The deprecation warning suggests an outdated CMake version might be contributing.
+**🛠️ Fix Suggestion:** Update CMake to a version >= 3.10. Review the CMakeLists.txt file for x265 for errors. Ensure the NDK is correctly configured and that all dependencies are available. Check the CMake output for specific error messages that indicate the cause of the failure. Consider cleaning the build directory and retrying the configuration.
 **📝 Type:** `CONFIGURE`
 
 ---
