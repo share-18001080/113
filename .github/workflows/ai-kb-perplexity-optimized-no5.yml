@@ -137,7 +137,7 @@ jobs:
             
             # API call with timeout
             RESP=$(timeout 30 curl -s -w "\nHTTP:%{http_code}" -X POST \
-              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$GEMINI_API_KEY" \
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY" \
               -H "Content-Type: application/json" \
               --data-binary @payload.json 2>/dev/null)
             
