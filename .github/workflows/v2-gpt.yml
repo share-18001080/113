@@ -1,0 +1,355 @@
+name: AI Knowledge Base (Perplexity Optimized) – Bản cập nhật
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID của workflow run để phân tích (tuỳ chọn)"
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  ai-analyze-error:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ai-knowledge-base-${{ github.ref }}
+      cancel-in-progress: false
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'failure' &&
+       contains(github.event.workflow_run.name, 'ver') &&
+       !contains(github.event.workflow_run.name, 'AI Knowledge Base'))
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Determine Run ID and Workflow Info
+        id: wf
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.run_id }}" ]; then
+            RID="${{ github.event.inputs.run_id }}"
+          else
+            RID="${{ github.event.workflow_run.id }}"
+          fi
+          echo "run_id=$RID" >> $GITHUB_OUTPUT
+
+          INFO=$(curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RID")
+          NAME=$(echo "$INFO" | jq -r '.name // "Unknown"')
+          RUNNO=$(echo "$INFO" | jq -r '.run_number // 0')
+          echo "workflow_name=$NAME" >> $GITHUB_OUTPUT
+          echo "run_number=$RUNNO" >> $GITHUB_OUTPUT
+
+      - name: Download and unify full log
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ steps.wf.outputs.run_id }}/logs" \
+            -o current-log.zip
+          unzip -q current-log.zip -d current-log/
+          find current-log/ -name "*.txt" -exec cat {} ; > full-log.txt
+          LINES=$(wc -l < full-log.txt || echo 0)
+          SIZE=$(wc -c < full-log.txt || echo 0)
+          echo "📊 Total lines: $LINES, size: ${SIZE}B"
+
+          # Multi-pattern error detection (escaped correctly)
+          ERROR_PATTERNS=("exit code [1-9]" "##\\[error\\]" "ERROR:" "FAILED:" "configure: error:" "ld: error:" "fatal error:" "ninja: error:" "CMake Error" "Undefined reference")
+          EXIT_LINE=""
+          for pat in "${ERROR_PATTERNS[@]}"; do
+            ln=$(grep -n "$pat" full-log.txt | head -n 1 | cut -d: -f1 || true)
+            if [ -n "${ln:-}" ]; then
+              if [ -z "${EXIT_LINE:-}" ] || [ "$ln" -lt "$EXIT_LINE" ]; then EXIT_LINE=$ln; fi
+            fi
+          done
+
+          # Build context intelligently
+          CONTEXT_FILE="error-context.txt"
+          : > "$CONTEXT_FILE"
+          if [ -n "${EXIT_LINE:-}" ]; then
+            S=$((EXIT_LINE - 120)); [ $S -lt 1 ] && S=1
+            E=$((EXIT_LINE + 60))
+            sed -n "${S},${E}p" full-log.txt >> "$CONTEXT_FILE"
+          fi
+
+          # Add multiple windows for other patterns (up to 3 matches each)
+          for pat in "${ERROR_PATTERNS[@]}"; do
+            mapfile -t hits < <(grep -n "$pat" full-log.txt | head -n 3 || true)
+            for h in "${hits[@]:-}"; do
+              ln=${h%%:*}
+              S=$((ln - 80)); [ $S -lt 1 ] && S=1
+              E=$((ln + 40))
+              echo -e "
+===== WINDOW for $pat at line $ln =====" >> "$CONTEXT_FILE"
+              sed -n "${S},${E}p" full-log.txt >> "$CONTEXT_FILE"
+            done
+          done
+
+          # Always include file head/tail
+          {
+            echo -e "
+===== HEAD (100) ====="
+            head -n 100 full-log.txt || true
+            echo -e "
+===== TAIL (200) ====="
+            tail -n 200 full-log.txt || true
+          } >> "$CONTEXT_FILE"
+
+          # Decide sending full log vs context
+          # Safe thresholds: <= 900 KB OR <= 20000 lines -> send full
+          if [ "$SIZE" -le 900000 ] || [ "$LINES" -le 20000 ]; then
+            echo "use_full_log=true" >> $GITHUB_OUTPUT
+            echo "CONTEXT_SRC=full-log.txt" >> $GITHUB_OUTPUT
+          else
+            echo "use_full_log=false" >> $GITHUB_OUTPUT
+            echo "CONTEXT_SRC=$CONTEXT_FILE" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract version & library
+        id: info
+        run: |
+          set -Eeuo pipefail
+          NAME="${{ steps.wf.outputs.workflow_name }}"
+          VER=$(echo "$NAME" | grep -oE 'ver[0-9]+' || true)
+          [ -z "${VER:-}" ] && VER="unknown"
+          LIB="unknown"
+          shopt -s nocasematch
+          [[ "$NAME" =~ libass ]] && LIB="libass"
+          [[ "$NAME" =~ libsoxr ]] && LIB="libsoxr"
+          [[ "$NAME" =~ libav1 ]] && LIB="libav1"
+          [[ "$NAME" =~ libtheora ]] && LIB="libtheora"
+          [[ "$NAME" =~ twolame ]] && LIB="twolame"
+          [[ "$NAME" =~ libgsm ]] && LIB="libgsm"
+          [[ "$NAME" =~ fribidi ]] && LIB="fribidi"
+          [[ "$NAME" =~ fdk-aac ]] && LIB="fdk-aac"
+          shopt -u nocasematch
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "library=$LIB" >> $GITHUB_OUTPUT
+
+      - name: Build prompt and payload (robust)
+        id: prompt
+        run: |
+          set -Eeuo pipefail
+          SRC="${{ steps.download_and_unify_full_log.outputs.CONTEXT_SRC || '' }}"
+          # Fallback if context not set
+          if [ -z "$SRC" ]; then SRC="error-context.txt"; fi
+          echo "Using context: $SRC"
+
+          {
+            echo "Phân tích lỗi FFmpeg Android ARM32 build."
+            echo "**Workflow:** ${{ steps.wf.outputs.workflow_name }}"
+            echo "**Run #:** ${{ steps.wf.outputs.run_number }}"
+            echo "**Version:** ${{ steps.info.outputs.version }}"
+            echo "**Library:** ${{ steps.info.outputs.library }} (nếu không khớp, hãy tự xác định từ log)"
+            echo
+            echo "Trả về JSON OBJECT (KHÔNG ARRAY) với các trường bắt buộc:"
+            echo 'error_id, error_name, root_cause, affected_library, error_type, symptoms, fix_suggestion, confidence.'
+            echo "Nếu thiếu bất kỳ trường nào hoặc sai kiểu, hãy tự điều chỉnh và trả về JSON hợp lệ."
+            echo
+            echo "===== CONTEXT START ====="
+            cat "$SRC"
+            echo "===== CONTEXT END ====="
+          } > prompt.txt
+
+          # Build payload via jq (prevent invalid JSON)
+          jq -n --arg text "$(cat prompt.txt)" \
+            '{contents:[{parts:[{text:$text}]}],generationConfig:{temperature:0.1,maxOutputTokens:4096,responseMimeType:"application/json"}}' > payload.json
+
+      - name: Call Gemini with retries + schema validation
+        id: ai
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -Eeuo pipefail
+          MAX_RETRIES=5
+          SUCCESS=false
+          for i in $(seq 1 $MAX_RETRIES); do
+            RESP=$(timeout 45 curl -s -w "
+HTTP:%{http_code}" -X POST \
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY" \
+              -H "Content-Type: application/json" \
+              --data-binary @payload.json || true)
+            HTTP=$(echo "$RESP" | tail -n 1 | cut -d: -f2)
+            BODY=$(echo "$RESP" | sed '$d')
+            if [ "$HTTP" = "200" ]; then
+              RAW=$(echo "$BODY" | jq -r '.candidates[0].content.parts[0].text' || echo '')
+              # Strip code fences if present
+              CLEAN=$(printf "%s" "$RAW" | sed -E '1s/^``````$//')
+              # Ensure object
+              if echo "$CLEAN" | jq -e . >/dev/null 2>&1; then
+                OBJ="$CLEAN"
+                # If array, pick first
+                if echo "$OBJ" | jq -e 'type=="array"' >/dev/null 2>&1; then
+                  OBJ=$(echo "$OBJ" | jq '.[0]')
+                fi
+                # Coerce types and ensure required fields
+                OBJ=$(echo "$OBJ" | jq '
+                  .symptoms |= (if type=="string" then [.] elif type=="array" then . else [] end) |
+                  .confidence |= (try (if (type=="number") then . else (tonumber) end) catch 0) |
+                  .error_id //= "ERROR-000" |
+                  .error_name //= "Unknown Error" |
+                  .root_cause //= "N/A" |
+                  .affected_library //= "unknown" |
+                  .error_type //= "UNKNOWN" |
+                  .fix_suggestion //= "N/A"
+                ')
+                echo "$OBJ" > ai.json
+                SUCCESS=true
+                break
+              fi
+            fi
+            sleep $((i*3))
+          done
+
+          if [ "$SUCCESS" != "true" ]; then
+            jq -n \
+              --arg lib "${{ steps.info.outputs.library }}" \
+              '{error_id:"ERROR-999",error_name:"AI API Failed",root_cause:"Gemini API unreachable or invalid response.",affected_library:$lib,error_type:"API_ERROR",symptoms:["API timeout","Network error"],fix_suggestion:"Kiểm tra GEMINI_API_KEY, thử lại sau.",confidence:10}' > ai.json
+          fi
+
+          echo "error_id=$(jq -r '.error_id' ai.json)" >> $GITHUB_OUTPUT
+          echo "error_name=$(jq -r '.error_name' ai.json)" >> $GITHUB_OUTPUT
+          echo "affected_lib=$(jq -r '.affected_library' ai.json)" >> $GITHUB_OUTPUT
+
+      - name: Persist structured JSON + dedupe
+        id: persist
+        run: |
+          set -Eeuo pipefail
+          mkdir -p logs/json
+          RID="${{ steps.wf.outputs.run_id }}"
+          VER="${{ steps.info.outputs.version }}"
+          ERR="${{ steps.ai.outputs.error_id }}"
+          TS=$(date -u +%Y%m%dT%H%M%SZ)
+          SHA=$(sha1sum full-log.txt | cut -d' ' -f1)
+          OUT="logs/json/${ERR}_${VER}_${SHA}_${TS}.json"
+          jq -n \
+            --arg rid "$RID" \
+            --arg name "${{ steps.wf.outputs.workflow_name }}" \
+            --arg runno "${{ steps.wf.outputs.run_number }}" \
+            --arg ver "$VER" \
+            --arg ts "$TS" \
+            --arg url "https://github.com/${{ github.repository }}/actions/runs/${{ steps.wf.outputs.run_id }}" \
+            --arg ctx "$(cat "${{ steps.download_and_unify_full_log.outputs.CONTEXT_SRC || 'error-context.txt' }}")" \
+            --arg sha "$SHA" \
+            --slurpfile analysis ai.json \
+            '{metadata:{run_id:$rid,workflow_name:$name,run_number:($runno|tonumber),version:$ver,date:$ts,github_run_url:$url,log_sha:$sha},analysis:$analysis[0],context:{excerpt:$ctx}}' \
+            > "$OUT"
+          echo "json_path=$OUT" >> $GITHUB_OUTPUT
+
+      - name: Create summary Markdown from JSON
+        id: summary
+        run: |
+          set -Eeuo pipefail
+          JSON="${{ steps.persist.outputs.json_path }}"
+          mkdir -p "logs/Error Summaries"
+          WF=$(jq -r '.metadata.workflow_name' "$JSON")
+          RUN=$(jq -r '.metadata.run_number' "$JSON")
+          VER=$(jq -r '.metadata.version' "$JSON")
+          DATE=$(date +%Y%m%d)
+          SAFE=$(echo "$WF" | sed 's/[()]//g' | sed 's/[^a-zA-Z0-9 -]/ /g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
+          FILE="logs/Error Summaries/${SAFE} run${RUN} ${DATE}.md"
+
+          {
+            echo "# FFmpeg Build Error Summary"
+            echo
+            echo "## Workflow Info"
+            echo "- **Name:** $WF"
+            echo "- **Run:** #$RUN"
+            echo "- **Version:** $VER"
+            echo "- **Date:** $(jq -r '.metadata.date' "$JSON")"
+            echo "- **Status:** Failed"
+            echo "- **GitHub:** $(jq -r '.metadata.github_run_url' "$JSON")"
+            echo
+            echo "## AI Analysis (Gemini 2.0 Flash)"
+            echo
+            echo '```
+            jq -r '.analysis' "$JSON"
+            echo '```'
+            echo
+            echo "### Error Details"
+            echo "**Error ID:** $(jq -r '.analysis.error_id' "$JSON")"
+            echo "**Error Name:** $(jq -r '.analysis.error_name' "$JSON")"
+            echo "**Affected Library:** $(jq -r '.analysis.affected_library' "$JSON")"
+            echo "**Error Type:** $(jq -r '.analysis.error_type' "$JSON")"
+            echo "**AI Confidence:** $(jq -r '.analysis.confidence' "$JSON")%"
+            echo
+            echo "**Symptoms:**"
+            jq -r '.analysis.symptoms | map("- " + .) | join("
+")' "$JSON"
+            echo
+            echo "**Root Cause:**"
+            jq -r '.analysis.root_cause' "$JSON"
+            echo
+            echo "**Fix Suggestion:**"
+            jq -r '.analysis.fix_suggestion' "$JSON"
+            echo
+            echo "## Error Context"
+            echo '```
+            jq -r '.context.excerpt' "$JSON"
+            echo '```'
+          } > "$FILE"
+
+          echo "summary_path=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Commit changes on a branch and open PR (via REST)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          BR="ai-analysis/${{ steps.ai.outputs.error_id }}-$(date +%s)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BR"
+          git add logs/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"; exit 0
+          fi
+          git commit -m "🤖 ${{
+            steps.ai.outputs.error_id
+          }}: ${{ steps.ai.outputs.error_name }} [${{ steps.info.outputs.version }}]"
+          git push -u origin "$BR"
+
+          # Create PR via REST API
+          REPO="${{ github.repository }}"
+          TITLE="🤖 AI Analysis: ${{ steps.ai.outputs.error_id }} - ${{ steps.ai.outputs.error_name }} [${{ steps.info.outputs.version }}]"
+          BODY=$(jq -n --arg s "${{ steps.summary.outputs.summary_path }}" --arg j "${{ steps.persist.outputs.json_path }}" --arg url "https://github.com/${{ github.repository }}/actions/runs/${{ steps.wf.outputs.run_id }}" '
+            "This PR adds AI analysis artifacts.
+
+Files:
+- " + $s + "
+- " + $j + "
+
+Run: " + $url
+          ')
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/pulls" \
+            -d "$(jq -n --arg t "$TITLE" --arg b "$BODY" --arg head "$BR" --arg base "main" '{title:$t,body:$b,head:$head,base:$base}')" >/dev/null
+
+      - name: Upload full log as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-log-${{ steps.ai.outputs.error_id }}
+          path: full-log.txt
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf current-log/ current-log.zip full-log.txt error-context.txt prompt.txt payload.json ai.json || true

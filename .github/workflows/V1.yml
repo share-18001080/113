@@ -1,0 +1,696 @@
+name: AI Knowledge Base (Perplexity Optimized v6)
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'ID của workflow run để phân tích (tuỳ chọn)'
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+# Quản lý concurrency để tránh xung đột khi nhiều workflow chạy đồng thời
+concurrency:
+  group: ai-knowledge-base-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ai-analyze-error:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.workflow_run.conclusion == 'failure' &&
+       contains(github.event.workflow_run.name, 'ver') &&
+       !contains(github.event.workflow_run.name, 'AI Knowledge Base'))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Determine Run ID
+        id: determine_run
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.run_id }}" ]; then
+            echo "run_id=${{ github.event.inputs.run_id }}" >> $GITHUB_OUTPUT
+          else
+            echo "run_id=${{ github.event.workflow_run.id }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get Workflow Info
+        id: workflow_info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID="${{ steps.determine_run.outputs.run_id }}"
+
+          # Lấy thông tin workflow
+          WORKFLOW_INFO=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID")
+
+          WORKFLOW_NAME=$(echo "$WORKFLOW_INFO" | jq -r '.name // "Unknown"')
+          RUN_NUMBER=$(echo "$WORKFLOW_INFO" | jq -r '.run_number // 0')
+
+          echo "workflow_name=$WORKFLOW_NAME" >> $GITHUB_OUTPUT
+          echo "run_number=$RUN_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Download and analyze log with enhanced detection
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID="${{ steps.determine_run.outputs.run_id }}"
+
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/logs" \
+            -o current-log.zip
+
+          unzip -q current-log.zip -d current-log/
+          find current-log/ -name "*.txt" -exec cat {} \; > full-log.txt
+
+          TOTAL=$(wc -l < full-log.txt)
+          echo "📊 Total: $TOTAL lines"
+
+          # Cấu hình nhiều pattern để phát hiện lỗi (có thể mở rộng)
+          ERROR_PATTERNS=(
+            "exit code [1-9]"
+            "##\[error\]"
+            "ERROR:"
+            "FAILED:"
+            "configure: error:"
+            "ld: error:"
+            "fatal error:"
+          )
+
+          EXIT_LINE=""
+          for pattern in "${ERROR_PATTERNS[@]}"; do
+            TEMP=$(grep -n "$pattern" full-log.txt | head -n 1 | cut -d: -f1)
+            if [ -n "$TEMP" ]; then
+              if [ -z "$EXIT_LINE" ] || [ "$TEMP" -lt "$EXIT_LINE" ]; then
+                EXIT_LINE=$TEMP
+                echo "🔍 Found error pattern: $pattern at line $EXIT_LINE"
+              fi
+            fi
+          done
+
+          if [ -n "$EXIT_LINE" ]; then
+            # Tăng ngữ cảnh lên 50 dòng thay vì 20
+            START=$((EXIT_LINE - 50))
+            [ $START -lt 1 ] && START=1
+            END=$((EXIT_LINE + 10))
+
+            sed -n "${START},${END}p" full-log.txt > error-context.txt
+
+            # Tìm detail log reference
+            DETAIL_LOG_PATH=$(grep -o "A full log can be found at .*" error-context.txt | head -n 1 | sed 's/A full log can be found at //' | tr -d '\r\n ')
+
+            if [ -n "$DETAIL_LOG_PATH" ]; then
+              echo "✅ Detail log: $DETAIL_LOG_PATH"
+              echo "$DETAIL_LOG_PATH" > detail-log-path.txt
+
+              # Trích xuất toàn bộ detail log (tăng từ 100 lên 300 dòng)
+              DETAIL_LOG_NAME=$(basename "$DETAIL_LOG_PATH")
+              if grep -q "$DETAIL_LOG_NAME" full-log.txt; then
+                grep -A 300 "$DETAIL_LOG_NAME" full-log.txt | head -n 300 > detail-log-content.txt
+              else
+                touch detail-log-content.txt
+              fi
+            else
+              touch detail-log-path.txt
+              touch detail-log-content.txt
+            fi
+          else
+            # Fallback: lấy 50 dòng cuối
+            tail -n 50 full-log.txt > error-context.txt
+            touch detail-log-path.txt
+            touch detail-log-content.txt
+          fi
+
+          # Upload full-log làm artifact để tham khảo
+          echo "full_log_available=true" >> $GITHUB_OUTPUT
+
+      - name: Extract version and library info dynamically
+        id: extract_info
+        run: |
+          WORKFLOW_NAME="${{ steps.workflow_info.outputs.workflow_name }}"
+
+          # Trích xuất version
+          VERSION=$(echo "$WORKFLOW_NAME" | grep -oE 'ver[0-9]+' || echo "unknown")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Cố gắng phát hiện library từ tên workflow
+          LIBRARY="unknown"
+          if echo "$WORKFLOW_NAME" | grep -qi "libass"; then
+            LIBRARY="libass"
+          elif echo "$WORKFLOW_NAME" | grep -qi "libsoxr"; then
+            LIBRARY="libsoxr"
+          elif echo "$WORKFLOW_NAME" | grep -qi "libav1"; then
+            LIBRARY="libav1"
+          elif echo "$WORKFLOW_NAME" | grep -qi "libtheora"; then
+            LIBRARY="libtheora"
+          elif echo "$WORKFLOW_NAME" | grep -qi "twolame"; then
+            LIBRARY="twolame"
+          elif echo "$WORKFLOW_NAME" | grep -qi "libgsm"; then
+            LIBRARY="libgsm"
+          elif echo "$WORKFLOW_NAME" | grep -qi "fribidi"; then
+            LIBRARY="fribidi"
+          elif echo "$WORKFLOW_NAME" | grep -qi "fdk-aac"; then
+            LIBRARY="fdk-aac"
+          fi
+
+          echo "library=$LIBRARY" >> $GITHUB_OUTPUT
+          echo "📦 Detected library: $LIBRARY"
+
+      - name: Call Gemini with dynamic prompt and schema validation
+        id: ai_analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          HAS_DETAIL=$([ -s detail-log-content.txt ] && echo "yes" || echo "no")
+          VERSION="${{ steps.extract_info.outputs.version }}"
+          LIBRARY="${{ steps.extract_info.outputs.library }}"
+          WORKFLOW_NAME="${{ steps.workflow_info.outputs.workflow_name }}"
+
+          # Tạo prompt động dựa trên thông tin thực tế
+          cat > prompt.txt << 'EOF'
+Phân tích lỗi FFmpeg Android ARM32 build.
+
+**Workflow:** $WORKFLOW_NAME
+**Version:** $VERSION
+**Library:** $LIBRARY (có thể không chính xác, hãy tự xác định từ log)
+
+Trả về JSON OBJECT (KHÔNG ARRAY) với cấu trúc bắt buộc:
+{
+  "error_id": "ERROR-XXX",
+  "error_name": "Mô tả ngắn gọn (max 10 từ)",
+  "root_cause": "Nguyên nhân gốc rễ chi tiết (max 150 từ)",
+  "affected_library": "Tên thư viện bị ảnh hưởng (tự xác định từ log)",
+  "error_type": "DEPENDENCY|LINKER|CONFIGURE|SYNTAX|COMPILER|UNKNOWN",
+  "symptoms": ["triệu chứng 1", "triệu chứng 2"],
+  "fix_suggestion": "Hướng dẫn khắc phục chi tiết (max 200 từ)",
+  "confidence": 90,
+  "additional_context": "Thông tin bổ sung nếu cần"
+}
+
+===== ERROR CONTEXT (50 dòng xung quanh lỗi) =====
+EOF
+
+          # Thay thế biến trong prompt
+          sed -i "s/\$WORKFLOW_NAME/$WORKFLOW_NAME/g" prompt.txt
+          sed -i "s/\$VERSION/$VERSION/g" prompt.txt
+          sed -i "s/\$LIBRARY/$LIBRARY/g" prompt.txt
+
+          cat error-context.txt >> prompt.txt
+
+          if [ "$HAS_DETAIL" = "yes" ]; then
+            echo "" >> prompt.txt
+            echo "===== DETAIL LOG (300 dòng) =====" >> prompt.txt
+            cat detail-log-content.txt >> prompt.txt
+          fi
+
+          # Retry logic với schema validation
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          SUCCESS=false
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
+            echo "🔄 Gemini API attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
+
+            ESCAPED=$(jq -Rs . < prompt.txt)
+
+            cat > payload.json << EOF
+{
+  "contents": [
+    {
+      "parts": [
+        {"text": $ESCAPED}
+      ]
+    }
+  ],
+  "generationConfig": {
+    "temperature": 0.1,
+    "maxOutputTokens": 4096,
+    "responseMimeType": "application/json"
+  }
+}
+EOF
+
+            RESP=$(timeout 45 curl -s -w "\nHTTP:%{http_code}" -X POST \
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY" \
+              -H "Content-Type: application/json" \
+              --data-binary @payload.json 2>/dev/null)
+
+            CURL_EXIT=$?
+
+            if [ $CURL_EXIT -eq 0 ]; then
+              HTTP=$(echo "$RESP" | tail -n 1 | cut -d: -f2)
+              BODY=$(echo "$RESP" | sed '$d')
+
+              if [ "$HTTP" = "200" ]; then
+                AI=$(echo "$BODY" | jq -r '.candidates[0].content.parts[0].text' 2>/dev/null)
+
+                if [ -n "$AI" ] && [ "$AI" != "null" ] && [ "$AI" != "" ]; then
+                  # Validate JSON structure
+                  if echo "$AI" | jq . >/dev/null 2>&1; then
+                    # Handle array vs object
+                    if echo "$AI" | jq -e 'type == "array"' > /dev/null 2>&1; then
+                      AI=$(echo "$AI" | jq '.[0]')
+                    fi
+
+                    # Schema validation - kiểm tra các trường bắt buộc
+                    REQUIRED_FIELDS=("error_id" "error_name" "root_cause" "affected_library" "error_type" "symptoms" "fix_suggestion" "confidence")
+                    VALID=true
+
+                    for field in "${REQUIRED_FIELDS[@]}"; do
+                      if ! echo "$AI" | jq -e ".$field" > /dev/null 2>&1; then
+                        echo "❌ Missing required field: $field"
+                        VALID=false
+                        break
+                      fi
+                    done
+
+                    if [ "$VALID" = "true" ]; then
+                      echo "✅ Schema validation passed"
+                      echo "$AI" > ai.json
+                      SUCCESS=true
+                    else
+                      echo "❌ Schema validation failed, retrying..."
+                    fi
+                  else
+                    echo "❌ Invalid JSON response, retrying..."
+                  fi
+                else
+                  echo "❌ Empty AI response, retrying..."
+                fi
+              elif [ "$HTTP" = "429" ]; then
+                echo "⏳ Rate limited, waiting $((RETRY_COUNT * 10 + 10))s..."
+                sleep $((RETRY_COUNT * 10 + 10))
+              elif [ "$HTTP" = "500" ] || [ "$HTTP" = "502" ] || [ "$HTTP" = "503" ]; then
+                echo "🔴 Server error $HTTP, waiting $((RETRY_COUNT * 5 + 5))s..."
+                sleep $((RETRY_COUNT * 5 + 5))
+              else
+                echo "❌ HTTP $HTTP: $(echo "$BODY" | head -n 3)"
+              fi
+            else
+              echo "❌ Network error (curl exit $CURL_EXIT)"
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+
+            if [ "$SUCCESS" = "false" ] && [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              DELAY=$((RETRY_COUNT * 3))
+              echo "⏱️ Waiting ${DELAY}s before retry..."
+              sleep $DELAY
+            fi
+          done
+
+          # Fallback với đầy đủ trường bắt buộc
+          if [ "$SUCCESS" = "false" ]; then
+            echo "💥 All Gemini API attempts failed, using fallback"
+            cat > ai.json << EOF
+{
+  "error_id": "ERROR-999",
+  "error_name": "API Failed After $MAX_RETRIES Retries",
+  "root_cause": "Gemini API không phản hồi sau $MAX_RETRIES lần thử. Có thể do API key không hợp lệ, rate limit, hoặc sự cố mạng.",
+  "affected_library": "$LIBRARY",
+  "error_type": "API_ERROR",
+  "symptoms": ["API timeout", "Network error", "No valid response"],
+  "fix_suggestion": "Kiểm tra lại GEMINI_API_KEY trong GitHub Secrets. Thử lại sau 5-10 phút. Xem xét tăng timeout hoặc giảm tần suất gọi API.",
+  "confidence": 10,
+  "additional_context": "Fallback response due to API failure"
+}
+EOF
+          fi
+
+          cat ai.json
+
+          # Export outputs với default values
+          echo "error_id=$(jq -r '.error_id // "ERROR-000"' ai.json)" >> $GITHUB_OUTPUT
+          echo "error_name=$(jq -r '.error_name // "Unknown Error"' ai.json)" >> $GITHUB_OUTPUT
+          echo "affected_lib=$(jq -r '.affected_library // "unknown"' ai.json)" >> $GITHUB_OUTPUT
+
+      - name: Create structured JSON log
+        id: create_json
+        run: |
+          WORKFLOW_NAME="${{ steps.workflow_info.outputs.workflow_name }}"
+          RUN_NUM="${{ steps.workflow_info.outputs.run_number }}"
+          DATE=$(date +%Y%m%d_%H%M%S)
+          VERSION="${{ steps.extract_info.outputs.version }}"
+          ERROR_ID="${{ steps.ai_analysis.outputs.error_id }}"
+
+          # Tạo thư mục JSON
+          mkdir -p "logs/json"
+
+          # Tạo JSON file với metadata đầy đủ
+          cat > "logs/json/${ERROR_ID}_${VERSION}_${DATE}.json" << EOF
+{
+  "metadata": {
+    "error_id": "$ERROR_ID",
+    "workflow_name": "$WORKFLOW_NAME",
+    "run_number": $RUN_NUM,
+    "version": "$VERSION",
+    "date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "github_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ steps.determine_run.outputs.run_id }}"
+  },
+  "analysis": $(cat ai.json),
+  "context": {
+    "error_context": $(cat error-context.txt | jq -Rs .),
+    "detail_log_path": $(cat detail-log-path.txt | jq -Rs .),
+    "has_detail_log": $([ -s detail-log-content.txt ] && echo "true" || echo "false")
+  }
+}
+EOF
+
+          echo "json_file=${ERROR_ID}_${VERSION}_${DATE}.json" >> $GITHUB_OUTPUT
+
+      - name: Create Perplexity-friendly markdown from JSON
+        id: create_files
+        run: |
+          JSON_FILE="logs/json/${{ steps.create_json.outputs.json_file }}"
+
+          # Tạo thư mục
+          mkdir -p "logs/Error Summaries"
+          mkdir -p "logs/Detail Logs"
+
+          # Đọc dữ liệu từ JSON
+          WORKFLOW_NAME=$(jq -r '.metadata.workflow_name' "$JSON_FILE")
+          RUN_NUM=$(jq -r '.metadata.run_number' "$JSON_FILE")
+          DATE=$(date +%Y%m%d)
+          VERSION=$(jq -r '.metadata.version' "$JSON_FILE")
+          ERROR_ID=$(jq -r '.metadata.error_id' "$JSON_FILE")
+
+          # Tạo tên file clean
+          CLEAN_NAME=$(echo "$WORKFLOW_NAME" | sed 's/[()]//g' | sed 's/[^a-zA-Z0-9 -]/ /g' | sed 's/  */ /g' | sed 's/^ *//' | sed 's/ *$//')
+          SUMMARY_FILE="${CLEAN_NAME} run${RUN_NUM} ${DATE}.md"
+          SUMMARY_PATH="logs/Error Summaries/$SUMMARY_FILE"
+
+          # Generate Markdown từ JSON
+          cat > "$SUMMARY_PATH" << 'MDEOF'
+# FFmpeg Build Error Summary
+
+## Workflow Info
+
+MDEOF
+
+          echo "- **Name:** $(jq -r '.metadata.workflow_name' "$JSON_FILE")" >> "$SUMMARY_PATH"
+          echo "- **Run:** #$(jq -r '.metadata.run_number' "$JSON_FILE")" >> "$SUMMARY_PATH"
+          echo "- **Version:** $(jq -r '.metadata.version' "$JSON_FILE")" >> "$SUMMARY_PATH"
+          echo "- **Date:** $(jq -r '.metadata.date' "$JSON_FILE")" >> "$SUMMARY_PATH"
+          echo "- **Status:** Failed" >> "$SUMMARY_PATH"
+          echo "- **GitHub:** $(jq -r '.metadata.github_run_url' "$JSON_FILE")" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+          echo "## AI Analysis (Gemini 2.0 Flash)" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+          echo "\`\`\`json" >> "$SUMMARY_PATH"
+          jq '.analysis' "$JSON_FILE" >> "$SUMMARY_PATH"
+          echo "\`\`\`" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+
+          # Extract và format các trường
+          echo "### Error Details" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+          echo "**Error ID:** $(jq -r '.analysis.error_id' "$JSON_FILE")" >> "$SUMMARY_PATH"
+          echo "**Error Name:** $(jq -r '.analysis.error_name' "$JSON_FILE")" >> "$SUMMARY_PATH"
+          echo "**Affected Library:** $(jq -r '.analysis.affected_library' "$JSON_FILE")" >> "$SUMMARY_PATH"
+          echo "**Error Type:** $(jq -r '.analysis.error_type' "$JSON_FILE")" >> "$SUMMARY_PATH"
+          echo "**AI Confidence:** $(jq -r '.analysis.confidence' "$JSON_FILE")%" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+
+          echo "**Symptoms:**" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+          jq -r '.analysis.symptoms | map("- " + .) | join("\n")' "$JSON_FILE" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+
+          echo "**Root Cause:**" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+          jq -r '.analysis.root_cause' "$JSON_FILE" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+
+          echo "**Fix Suggestion:**" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+          jq -r '.analysis.fix_suggestion' "$JSON_FILE" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+
+          # Additional context nếu có
+          if jq -e '.analysis.additional_context' "$JSON_FILE" > /dev/null 2>&1; then
+            echo "**Additional Context:**" >> "$SUMMARY_PATH"
+            echo "" >> "$SUMMARY_PATH"
+            jq -r '.analysis.additional_context' "$JSON_FILE" >> "$SUMMARY_PATH"
+            echo "" >> "$SUMMARY_PATH"
+          fi
+
+          echo "## Error Context" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+          echo "\`\`\`" >> "$SUMMARY_PATH"
+          jq -r '.context.error_context' "$JSON_FILE" >> "$SUMMARY_PATH"
+          echo "\`\`\`" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+
+          DETAIL_LOG=$(jq -r '.context.detail_log_path' "$JSON_FILE")
+          if [ -n "$DETAIL_LOG" ] && [ "$DETAIL_LOG" != "" ]; then
+            echo "## Detail Log Reference" >> "$SUMMARY_PATH"
+            echo "" >> "$SUMMARY_PATH"
+            echo "\`\`\`" >> "$SUMMARY_PATH"
+            echo "$DETAIL_LOG" >> "$SUMMARY_PATH"
+            echo "\`\`\`" >> "$SUMMARY_PATH"
+
+            if [ -s detail-log-content.txt ]; then
+              DETAIL_FILE="$(basename "$DETAIL_LOG" | sed 's/\.txt//') $VERSION run$RUN_NUM.txt"
+              cp detail-log-content.txt "logs/Detail Logs/$DETAIL_FILE"
+              echo "detail_file=$DETAIL_FILE" >> $GITHUB_OUTPUT
+
+              echo "" >> "$SUMMARY_PATH"
+              echo "**Full Detail Log:** [\`$DETAIL_FILE\`](../Detail Logs/$DETAIL_FILE)" >> "$SUMMARY_PATH"
+            fi
+          fi
+
+          echo "" >> "$SUMMARY_PATH"
+          echo "---" >> "$SUMMARY_PATH"
+          echo "" >> "$SUMMARY_PATH"
+          echo "**For AI Assistant:** This summary is structured for easy parsing. JSON data available at [\`${{ steps.create_json.outputs.json_file }}\`](../json/${{ steps.create_json.outputs.json_file }})" >> "$SUMMARY_PATH"
+
+          echo "summary_file=$SUMMARY_FILE" >> $GITHUB_OUTPUT
+          echo "✅ Created: $SUMMARY_FILE"
+
+      - name: Update Knowledge Base from JSON
+        run: |
+          KB_FILE="logs/Error Knowledge Base.md"
+
+          # Tạo KB nếu chưa có
+          if [ ! -f "$KB_FILE" ]; then
+            cat > "$KB_FILE" << 'EOF'
+# FFmpeg Android ARM32 - Error Knowledge Base
+
+> **Purpose:** Track all build errors for FFmpeg Android ARM32
+> **AI:** Gemini 2.0 Flash with enhanced context analysis
+> **Storage:** All logs in \`/logs/\` folder (Perplexity-optimized)
+> **Total Errors:** 0
+
+## Quick Reference
+
+| ID | Error | Library | Version | Summary | Date |
+|----|-------|---------|---------|---------|------|
+
+## Error Details
+
+EOF
+          fi
+
+          JSON_FILE="logs/json/${{ steps.create_json.outputs.json_file }}"
+
+          # Extract data từ JSON
+          ERROR_ID=$(jq -r '.metadata.error_id' "$JSON_FILE")
+          ERROR_NAME=$(jq -r '.analysis.error_name' "$JSON_FILE")
+          AFFECTED_LIB=$(jq -r '.analysis.affected_library' "$JSON_FILE")
+          VERSION=$(jq -r '.metadata.version' "$JSON_FILE")
+          SUMMARY_FILE="${{ steps.create_files.outputs.summary_file }}"
+          DETAIL_FILE="${{ steps.create_files.outputs.detail_file }}"
+          ROOT=$(jq -r '.analysis.root_cause' "$JSON_FILE")
+          TYPE=$(jq -r '.analysis.error_type' "$JSON_FILE")
+          FIX=$(jq -r '.analysis.fix_suggestion' "$JSON_FILE")
+          SYMP=$(jq -r '.analysis.symptoms | join(", ")' "$JSON_FILE")
+          CONF=$(jq -r '.analysis.confidence' "$JSON_FILE")
+          CURRENT_DATE=$(date +%Y-%m-%d)
+
+          # Update table
+          sed -i "/^| ID | Error/a | $ERROR_ID | $ERROR_NAME | $AFFECTED_LIB | $VERSION | [\`$SUMMARY_FILE\`](Error Summaries/$SUMMARY_FILE) | $CURRENT_DATE |" "$KB_FILE"
+
+          # Update total count - đếm số dòng trong bảng thay vì đếm header
+          TOTAL=$(grep -c "^| ERROR-" "$KB_FILE" 2>/dev/null || echo "0")
+          sed -i "s/Total Errors:\*\* [0-9]*/Total Errors:** $TOTAL/" "$KB_FILE"
+
+          # Add detail entry
+          cat >> "$KB_FILE" << EOF
+
+### 🔴 $ERROR_ID: $ERROR_NAME
+
+**📅 Date:** $CURRENT_DATE
+**🔗 GitHub:** [Run #$(jq -r '.metadata.run_number' "$JSON_FILE")]($(jq -r '.metadata.github_run_url' "$JSON_FILE"))
+**🎯 Library:** \`$AFFECTED_LIB\`
+**🏷️ Version:** \`$VERSION\`
+**🤖 AI Confidence:** ${CONF}%
+**📄 Full Summary:** [\`$SUMMARY_FILE\`](Error Summaries/$SUMMARY_FILE)
+**📊 JSON Data:** [\`${{ steps.create_json.outputs.json_file }}\`](json/${{ steps.create_json.outputs.json_file }})
+EOF
+
+          if [ -n "$DETAIL_FILE" ]; then
+            echo "**📋 Detail Log:** [\`$DETAIL_FILE\`](Detail Logs/$DETAIL_FILE)" >> "$KB_FILE"
+          fi
+
+          cat >> "$KB_FILE" << EOF
+**⚠️ Symptoms:** $SYMP
+**🔍 Root Cause:** $ROOT
+**🛠️ Fix Suggestion:** $FIX
+**📝 Type:** \`$TYPE\`
+
+---
+
+EOF
+
+      - name: Create Pull Request instead of direct push
+        id: create_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ERROR_ID="${{ steps.ai_analysis.outputs.error_id }}"
+          VERSION="${{ steps.extract_info.outputs.version }}"
+          BRANCH_NAME="ai-analysis/$ERROR_ID-$(date +%s)"
+
+          # Cấu hình git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Tạo branch mới
+          git checkout -b "$BRANCH_NAME"
+
+          # Add và commit
+          git add logs/
+
+          if ! git diff --staged --quiet; then
+            git commit -m "🤖 AI Analysis: $ERROR_ID - ${{ steps.ai_analysis.outputs.error_name }} [$VERSION]
+
+Automated error analysis by Gemini 2.0 Flash
+
+- Error ID: $ERROR_ID
+- Version: $VERSION
+- Library: ${{ steps.ai_analysis.outputs.affected_lib }}
+- Confidence: $(jq -r '.confidence' ai.json)%
+
+Files added:
+- Error Summary: logs/Error Summaries/${{ steps.create_files.outputs.summary_file }}
+- JSON Data: logs/json/${{ steps.create_json.outputs.json_file }}
+- Knowledge Base updated
+
+For details, see the PR description."
+
+            # Push branch
+            git push origin "$BRANCH_NAME"
+
+            # Tạo PR body
+            PR_BODY="## 🤖 AI Error Analysis Complete
+
+**Error ID:** $ERROR_ID
+**Version:** $VERSION
+**Library:** ${{ steps.ai_analysis.outputs.affected_lib }}
+**Workflow Run:** #${{ steps.workflow_info.outputs.run_number }}
+
+### 📊 Analysis Summary
+
+\`\`\`json
+$(cat ai.json)
+\`\`\`
+
+### 📁 Files Added
+
+- **Error Summary:** \`logs/Error Summaries/${{ steps.create_files.outputs.summary_file }}\`
+- **JSON Data:** \`logs/json/${{ steps.create_json.outputs.json_file }}\`
+- **Knowledge Base:** Updated with new entry
+
+### 🔗 Links
+
+- [Failed Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ steps.determine_run.outputs.run_id }})
+- [Error Knowledge Base](https://github.com/${{ github.repository }}/blob/$BRANCH_NAME/logs/Error%20Knowledge%20Base.md)
+
+---
+
+**Note:** This PR was automatically created by the AI Knowledge Base workflow. Review the analysis and merge if accurate."
+
+            # Tạo PR
+            gh pr create \
+              --title "🤖 AI Analysis: $ERROR_ID - ${{ steps.ai_analysis.outputs.error_name }} [$VERSION]" \
+              --body "$PR_BODY" \
+              --base main \
+              --head "$BRANCH_NAME" \
+              --label "ai-analysis,automated"
+
+            echo "pr_created=true" >> $GITHUB_OUTPUT
+            echo "✅ Pull Request created successfully"
+          else
+            echo "pr_created=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No changes to commit"
+          fi
+
+      - name: Upload full log as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-log-${{ steps.ai_analysis.outputs.error_id }}
+          path: full-log.txt
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## ✅ Analysis Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.extract_info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Library:** ${{ steps.extract_info.outputs.library }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Error ID:** ${{ steps.ai_analysis.outputs.error_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Error Name:** ${{ steps.ai_analysis.outputs.error_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.create_pr.outputs.pr_created }}" = "true" ]; then
+            echo "### 🎉 Pull Request Created" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "A Pull Request has been created with the analysis results." >> $GITHUB_STEP_SUMMARY
+            echo "Review and merge to add to the Knowledge Base." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ℹ️ No Changes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No changes were detected or committed." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 Files Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Summary:** \`${{ steps.create_files.outputs.summary_file }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **JSON:** \`${{ steps.create_json.outputs.json_file }}\`" >> $GITHUB_STEP_SUMMARY
+
+          if [ -n "${{ steps.create_files.outputs.detail_file }}" ]; then
+            echo "- **Detail Log:** \`${{ steps.create_files.outputs.detail_file }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🤖 AI Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+          cat ai.json >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf current-log/ current-log.zip full-log.txt error-context.txt \
+                 detail-log-path.txt detail-log-content.txt prompt.txt \
+                 payload.json ai.json 2>/dev/null || true
