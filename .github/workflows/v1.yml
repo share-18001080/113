@@ -1,0 +1,201 @@
+name: AI Log Analysis (Gemini Files)
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  analyze-failure:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download run logs (ZIP) and prepare text
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Download full workflow run logs (ZIP)
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/logs" \
+            -o run_logs.zip
+
+          # Unzip into ./logs
+          rm -rf logs
+          mkdir -p logs
+          unzip -q run_logs.zip -d logs
+
+          # Build a consolidated full-log.txt (sorted for determinism)
+          : > full-log.txt
+          if find logs -type f -name "*.txt" | grep -q .; then
+            # Concatenate and normalize: strip ANSI
+            find logs -type f -name "*.txt" -print0 \
+              | sort -z \
+              | xargs -0 cat -- >> full-log.txt || true
+            perl -pe 's/\e\[[0-9;]*[A-Za-z]//g' -i full-log.txt || true
+          else
+            echo "No *.txt logs found in ZIP, using fallback placeholder." >> full-log.txt
+          fi
+
+          # Pick top 30 largest step files for focused per-step analysis
+          # (keeps payload manageable while providing granular context)
+          : > step-files.list
+          find logs -type f -name "*.txt" -printf "%s\t%p\n" \
+            | sort -nr \
+            | head -n 30 \
+            | cut -f2- \
+            | sed 's#^\./##' \
+            >> step-files.list || true
+
+      - name: Upload raw logs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-${{ github.event.workflow_run.id }}-logs
+          path: |
+            run_logs.zip
+            full-log.txt
+            step-files.list
+
+      - name: Upload logs to Gemini Files API and request analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GEMINI_API_KEY:-}" ]; then
+            echo "GEMINI_API_KEY is not set; skipping Gemini analysis."
+            exit 0
+          fi
+
+          api_base="https://generativelanguage.googleapis.com"
+          model="gemini-2.0-flash"
+
+          upload_file() {
+            local path="$1"
+            local mime="${2:-text/plain}"
+            if [ ! -s "$path" ]; then
+              echo ""
+              return 0
+            fi
+            local bytes
+            bytes=$(wc -c < "$path" | tr -d ' ')
+            local hdr
+            hdr=$(mktemp)
+            curl -sS "${api_base}/upload/v1beta/files?key=${GEMINI_API_KEY}" \
+              -D "$hdr" \
+              -H "X-Goog-Upload-Protocol: resumable" \
+              -H "X-Goog-Upload-Command: start" \
+              -H "X-Goog-Upload-Header-Content-Length: ${bytes}" \
+              -H "X-Goog-Upload-Header-Content-Type: ${mime}" \
+              -H "Content-Type: application/json" \
+              -d '{"file":{"display_name":"'"$(basename "$path")"'"}}' >/dev/null
+            local upload_url
+            upload_url=$(grep -i "x-goog-upload-url:" "$hdr" | awk '{print $2}' | tr -d '\r')
+            rm -f "$hdr"
+
+            if [ -z "$upload_url" ]; then
+              echo ""
+              return 0
+            fi
+
+            local info
+            info=$(mktemp)
+            curl -sS "${upload_url}" \
+              -H "Content-Length: ${bytes}" \
+              -H "X-Goog-Upload-Offset: 0" \
+              -H "X-Goog-Upload-Command: upload, finalize" \
+              --data-binary "@${path}" > "$info"
+            local uri
+            uri=$(jq -r '.file.uri // empty' "$info")
+            rm -f "$info"
+            echo "$uri"
+          }
+
+          mkdir -p gemini
+
+          # Upload consolidated full log first
+          full_uri=$(upload_file "full-log.txt" "text/plain" || true)
+          echo "$full_uri" > gemini/full.uri
+
+          # Upload per-step logs (top 30)
+          : > gemini/parts.jsonl
+          if [ -s step-files.list ]; then
+            while IFS= read -r f; do
+              [ -f "$f" ] || continue
+              uri=$(upload_file "$f" "text/plain" || true)
+              if [ -n "$uri" ]; then
+                printf '{"text":"Step file: %s"}\n' "$(basename "$f")" >> gemini/parts.jsonl
+                printf '{"uri":"%s"}\n' "$uri" >> gemini/parts.jsonl
+              fi
+            done < step-files.list
+          fi
+
+          # Build request payload for generateContent
+          {
+            echo '{'
+            echo '  "system_instruction": { "parts": [ { "text": "You are a CI/CD build log expert. Analyze failures step-by-step. For each step: summarize, detect failure signals, identify root cause, and propose concrete fixes with commands or config changes. Cross-reference exact lines. Return Markdown with sections: Summary, Failed Steps, Root Cause, Fix, Next Actions." } ] },'
+            echo '  "contents": ['
+
+            # Message 1: run context + full log
+            echo '    { "role": "user", "parts": ['
+            printf '      { "text": "Repository: %s\\nRun ID: %s\\nBranch: %s\\nWorkflow: %s\\nPlease start with a high-level summary, then analyze each step in order." },\n' \
+              "${{ github.repository }}" "${{ github.event.workflow_run.id }}" "${{ github.event.workflow_run.head_branch }}" "${{ github.event.workflow_run.name }}"
+            if [ -n "${full_uri:-}" ]; then
+              echo '      { "text": "Full consolidated log" },'
+              printf '      { "file_data": { "file_uri": "%s", "mime_type": "text/plain" } }\n' "$full_uri"
+            else
+              echo '      { "text": "No consolidated log available; proceed with step logs." }'
+            fi
+            echo '    ] }'
+
+            # Additional messages per step file
+            if [ -s gemini/parts.jsonl ]; then
+              while read -r meta && read -r file; do
+                name=$(echo "$meta" | jq -r '.text')
+                uri=$(echo "$file" | jq -r '.uri')
+                echo '  , { "role": "user", "parts": ['
+                printf '      { "text": "Analyze %s. Extract errors/warnings, last non-zero exit, missing deps or symbols, and provide concrete fixes." },\n' "$name"
+                printf '      { "file_data": { "file_uri": "%s", "mime_type": "text/plain" } }\n' "$uri"
+                echo '    ] }'
+              done < gemini/parts.jsonl
+            fi
+
+            echo '  ]'
+            echo '}'
+          } > gemini/request.json
+
+          # Invoke Gemini generateContent
+          curl -sS "${api_base}/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -X POST \
+            -d @gemini/request.json \
+            > gemini/response.json || true
+
+          # Extract textual analysis
+          jq -r '[.candidates[].content.parts[]?.text] | join("\n\n")' gemini/response.json \
+            > gemini/analysis.md || echo "AI analysis extraction failed" > gemini/analysis.md
+
+      - name: Upload AI analysis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-${{ github.event.workflow_run.id }}-gemini-analysis
+          path: |
+            gemini/request.json
+            gemini/response.json
+            gemini/analysis.md
+            gemini/full.uri
